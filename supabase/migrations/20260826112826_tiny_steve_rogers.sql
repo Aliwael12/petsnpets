@@ -1,0 +1,1 @@
+ALTER TABLE "employees" ADD COLUMN "enabled_features" jsonb DEFAULT '[]'::jsonb NOT NULL;

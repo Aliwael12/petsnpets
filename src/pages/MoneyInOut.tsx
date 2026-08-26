@@ -1,7 +1,12 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { useStore } from '../store/useStore';
-import { Button, Card, CardHeader, EmptyState, Input, Modal, Select, StatTile, formatCurrency, formatDate } from '../components/ui';
+import { useSales } from '../api/sales';
+import { useRefunds } from '../api/refunds';
+import { useCreateSupplierOrder, useSupplierOrders, useSuppliers } from '../api/purchasing';
+import { useProducts } from '../api/catalog';
+import { ApiError } from '../api/client';
+import { businessDayKey, lastBusinessDays } from '../lib/timezone';
+import { Button, Card, CardHeader, EmployeeTag, EmptyState, Input, Modal, Select, StatTile, formatCurrency, formatDate } from '../components/ui';
 import {
   Bar,
   BarChart,
@@ -17,86 +22,83 @@ import { Plus } from 'lucide-react';
 type Range = 'all' | '7' | '30';
 
 export function MoneyInOut() {
-  const transactions = useStore((s) => s.transactions);
-  const supplierOrders = useStore((s) => s.supplierOrders);
-  const suppliers = useStore((s) => s.suppliers);
-  const products = useStore((s) => s.products);
-  const currentUser = useStore((s) => s.currentUser());
-  const addSupplierOrder = useStore((s) => s.addSupplierOrder);
-  const addSupplier = useStore((s) => s.addSupplier);
-
   const [range, setRange] = useState<Range>('30');
+  const sinceDays = range === 'all' ? undefined : Number(range);
+
+  const { data: sales = [] } = useSales({ sinceDays });
+  const { data: supplierOrders = [] } = useSupplierOrders();
+  const { data: refunds = [] } = useRefunds();
+  const { data: suppliers = [] } = useSuppliers();
+  const { data: products = [] } = useProducts({ activeOnly: false });
+  const createSupplierOrder = useCreateSupplierOrder();
+
+  const orderableProducts = products.filter((p) => p.category !== 'service');
+
   const [modalOpen, setModalOpen] = useState(false);
   const [newSupplierMode, setNewSupplierMode] = useState(false);
   const [form, setForm] = useState({ supplierId: '', newSupplierName: '', productId: '', quantity: '', costTotal: '' });
 
-  const cutoff = range === 'all' ? null : Date.now() - Number(range) * 24 * 60 * 60 * 1000;
+  const cutoff = sinceDays ? Date.now() - sinceDays * 24 * 60 * 60 * 1000 : null;
+  const filteredOrders = supplierOrders.filter((o) => !cutoff || +new Date(o.receivedAt) >= cutoff);
+  const filteredRefunds = refunds.filter((r) => !cutoff || +new Date(r.createdAt) >= cutoff);
 
-  const filteredTxns = useMemo(
-    () => transactions.filter((t) => !cutoff || new Date(t.createdAt).getTime() >= cutoff),
-    [transactions, cutoff],
-  );
-  const filteredOrders = useMemo(
-    () => supplierOrders.filter((o) => !cutoff || new Date(o.receivedAt).getTime() >= cutoff),
-    [supplierOrders, cutoff],
-  );
-
-  const moneyIn = filteredTxns.reduce((sum, t) => sum + t.total, 0);
-  const moneyOut = filteredOrders.reduce((sum, o) => sum + o.costTotal, 0);
+  const moneyIn = sales.reduce((sum, t) => sum + t.total, 0);
+  const supplierCost = filteredOrders.reduce((sum, o) => sum + o.costTotal, 0);
+  const refundCost = filteredRefunds.reduce((sum, r) => sum + r.total, 0);
+  const moneyOut = supplierCost + refundCost;
   const net = moneyIn - moneyOut;
 
   const chartData = useMemo(() => {
     const days = range === '7' ? 7 : 30;
-    const list: { label: string; date: string; in: number; out: number }[] = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      list.push({ date: d.toDateString(), label: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }), in: 0, out: 0 });
-    }
-    transactions.forEach((t) => {
-      const key = new Date(t.createdAt).toDateString();
-      const day = list.find((d) => d.date === key);
-      if (day) day.in += t.total;
+    const keys = lastBusinessDays(days);
+    const byKey = new Map(keys.map((k) => [k, { label: k.slice(5), in: 0, out: 0 }]));
+
+    sales.forEach((t) => {
+      const bucket = byKey.get(businessDayKey(t.createdAt));
+      if (bucket) bucket.in += t.total;
     });
     supplierOrders.forEach((o) => {
-      const key = new Date(o.receivedAt).toDateString();
-      const day = list.find((d) => d.date === key);
-      if (day) day.out += o.costTotal;
+      const bucket = byKey.get(businessDayKey(o.receivedAt));
+      if (bucket) bucket.out += o.costTotal;
     });
-    return list;
-  }, [transactions, supplierOrders, range]);
-
-  const supplierName = (id: string) => suppliers.find((s) => s.id === id)?.name ?? 'Unknown';
-  const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id;
+    refunds.forEach((r) => {
+      const bucket = byKey.get(businessDayKey(r.createdAt));
+      if (bucket) bucket.out += r.total;
+    });
+    return keys.map((k) => byKey.get(k)!);
+  }, [sales, supplierOrders, refunds, range]);
 
   const submit = () => {
-    if (!currentUser) return;
-    let supplierId = form.supplierId;
-    if (newSupplierMode) {
-      if (!form.newSupplierName.trim()) {
-        toast.error('Supplier name is required');
-        return;
-      }
-      const supplier = addSupplier({ name: form.newSupplierName.trim(), contactInfo: '' });
-      supplierId = supplier.id;
+    if (newSupplierMode && !form.newSupplierName.trim()) {
+      toast.error('Supplier name is required');
+      return;
     }
-    if (!supplierId || !form.productId || !form.quantity || !form.costTotal) {
+    if (!newSupplierMode && !form.supplierId) {
+      toast.error('Select a supplier');
+      return;
+    }
+    if (!form.productId || !form.quantity || !form.costTotal) {
       toast.error('Please fill in all fields');
       return;
     }
-    addSupplierOrder({
-      supplierId,
-      productId: form.productId,
-      quantity: Number(form.quantity),
-      costTotal: Number(form.costTotal),
-      loggedBy: currentUser.id,
-      receivedAt: new Date().toISOString(),
-    });
-    toast.success('Supplier order logged');
-    setForm({ supplierId: '', newSupplierName: '', productId: '', quantity: '', costTotal: '' });
-    setNewSupplierMode(false);
-    setModalOpen(false);
+    createSupplierOrder.mutate(
+      {
+        supplierId: newSupplierMode ? undefined : form.supplierId,
+        newSupplierName: newSupplierMode ? form.newSupplierName.trim() : undefined,
+        productId: form.productId,
+        quantity: Number(form.quantity),
+        costTotal: Math.round(Number(form.costTotal) * 100),
+      },
+      {
+        onSuccess: () => {
+          toast.success('Supplier order logged');
+          setForm({ supplierId: '', newSupplierName: '', productId: '', quantity: '', costTotal: '' });
+          setNewSupplierMode(false);
+          setModalOpen(false);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not log supplier order'),
+      },
+    );
   };
 
   return (
@@ -119,8 +121,8 @@ export function MoneyInOut() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatTile label="Money in" value={formatCurrency(moneyIn)} tone="gold" hint={`${filteredTxns.length} sales`} />
-        <StatTile label="Money out" value={formatCurrency(moneyOut)} hint={`${filteredOrders.length} supplier orders`} />
+        <StatTile label="Money in" value={formatCurrency(moneyIn)} tone="gold" hint={`${sales.length} sales`} />
+        <StatTile label="Money out" value={formatCurrency(moneyOut)} hint={`${filteredOrders.length} orders · ${filteredRefunds.length} refunds`} />
         <StatTile label="Net" value={formatCurrency(net)} tone={net < 0 ? 'warn' : 'default'} />
       </div>
 
@@ -131,7 +133,7 @@ export function MoneyInOut() {
             <BarChart data={chartData} margin={{ left: 8, right: 16 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eef0f6" />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={range === '7' ? 0 : 4} stroke="#94a3b8" />
-              <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `${v / 1000}k`} />
+              <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `${v / 100000}k`} />
               <Tooltip formatter={(v) => formatCurrency(Number(v))} />
               <Legend />
               <Bar dataKey="in" name="Money in" fill="#f0c419" radius={[4, 4, 0, 0]} />
@@ -153,6 +155,7 @@ export function MoneyInOut() {
                   <th className="px-5 py-3 font-medium">Supplier</th>
                   <th className="px-5 py-3 font-medium">Product</th>
                   <th className="px-5 py-3 font-medium">Qty</th>
+                  <th className="px-5 py-3 font-medium">Logged by</th>
                   <th className="px-5 py-3 font-medium">Date</th>
                   <th className="px-5 py-3 font-medium text-right">Cost</th>
                 </tr>
@@ -160,14 +163,58 @@ export function MoneyInOut() {
               <tbody className="divide-y divide-slate-100">
                 {filteredOrders
                   .slice()
-                  .sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime())
+                  .sort((a, b) => +new Date(b.receivedAt) - +new Date(a.receivedAt))
                   .map((o) => (
                     <tr key={o.id}>
-                      <td className="px-5 py-3 font-medium text-navy-950">{supplierName(o.supplierId)}</td>
-                      <td className="px-5 py-3 text-slate-600">{productName(o.productId)}</td>
+                      <td className="px-5 py-3 font-medium text-navy-950">{o.supplier?.name ?? 'Unknown'}</td>
+                      <td className="px-5 py-3 text-slate-600">{o.product?.name ?? o.productId}</td>
                       <td className="px-5 py-3 text-slate-600">{o.quantity}</td>
+                      <td className="px-5 py-3">
+                        <EmployeeTag name={o.loggedByEmployee?.name ?? 'Unknown'} />
+                      </td>
                       <td className="px-5 py-3 text-slate-500">{formatDate(o.receivedAt)}</td>
                       <td className="px-5 py-3 text-right font-semibold text-navy-950">{formatCurrency(o.costTotal)}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Refund history" />
+        {filteredRefunds.length === 0 ? (
+          <EmptyState title="No refunds in this range" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-5 py-3 font-medium">Transaction</th>
+                  <th className="px-5 py-3 font-medium">Items</th>
+                  <th className="px-5 py-3 font-medium">Refunded by</th>
+                  <th className="px-5 py-3 font-medium">Date</th>
+                  <th className="px-5 py-3 font-medium text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredRefunds
+                  .slice()
+                  .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+                  .map((r) => (
+                    <tr key={r.id}>
+                      <td className="px-5 py-3 font-medium text-navy-950">
+                        {r.transaction ? `INV-${r.transaction.invoiceYear}-${String(r.transaction.invoiceNo).padStart(5, '0')}` : r.transactionId}
+                      </td>
+                      <td className="px-5 py-3 text-slate-600">
+                        {r.items.map((it) => `${it.product?.name ?? it.productId} ×${it.quantity}`).join(', ')}
+                      </td>
+                      <td className="px-5 py-3">
+                        <EmployeeTag name={r.refundedByEmployee?.name ?? 'Unknown'} />
+                      </td>
+                      <td className="px-5 py-3 text-slate-500">{formatDate(r.createdAt)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-red-600">-{formatCurrency(r.total)}</td>
                     </tr>
                   ))}
               </tbody>
@@ -207,7 +254,7 @@ export function MoneyInOut() {
               <label className="mb-1 block text-xs font-medium text-slate-500">Product</label>
               <Select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value })}>
                 <option value="">Select product</option>
-                {products.map((p) => (
+                {orderableProducts.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -228,7 +275,9 @@ export function MoneyInOut() {
               <Button variant="ghost" onClick={() => setModalOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={submit}>Log order</Button>
+              <Button onClick={submit} disabled={createSupplierOrder.isPending}>
+                {createSupplierOrder.isPending ? 'Logging…' : 'Log order'}
+              </Button>
             </div>
           </div>
         </Modal>

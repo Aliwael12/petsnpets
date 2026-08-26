@@ -1,23 +1,26 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { useStore } from '../store/useStore';
-import { NAV_ITEMS } from '../lib/permissions';
+import { useAuthStore } from '../store/useAuthStore';
+import { useLogout } from '../api/auth';
+import { NAV_ITEMS, canAccess } from '../lib/permissions';
 import { LogoLockup } from './Logo';
 import { Badge } from './ui';
 import { ChevronDown, LogOut, Menu, X } from 'lucide-react';
 
 export function Layout() {
-  const currentUser = useStore((s) => s.currentUser());
-  const employees = useStore((s) => s.employees);
-  const signIn = useStore((s) => s.signIn);
-  const signOut = useStore((s) => s.signOut);
+  const employee = useAuthStore((s) => s.employee);
+  const logout = useLogout();
   const navigate = useNavigate();
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  if (!currentUser) return null;
+  if (!employee) return null;
 
-  const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(currentUser.role));
+  const visibleItems = NAV_ITEMS.filter((item) => canAccess(employee, item.path));
+
+  const handleSignOut = () => {
+    logout.mutate(undefined, { onSuccess: () => navigate('/staff') });
+  };
 
   return (
     <div className="flex min-h-screen bg-slate-50">
@@ -62,50 +65,24 @@ export function Layout() {
           <div className="hidden lg:block" />
           <div className="relative">
             <button
-              onClick={() => setSwitcherOpen((v) => !v)}
+              onClick={() => setMenuOpen((v) => !v)}
               className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm hover:bg-slate-50"
             >
               <div className="flex flex-col items-end leading-tight">
-                <span className="font-medium text-navy-950">{currentUser.name}</span>
-                <Badge tone={currentUser.role}>{currentUser.role}</Badge>
+                <span className="font-medium text-navy-950">{employee.name}</span>
+                <Badge tone={employee.role}>{employee.role}</Badge>
               </div>
               <ChevronDown size={16} className="text-slate-400" />
             </button>
-            {switcherOpen && (
-              <div className="absolute right-0 z-40 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  Switch role (demo)
-                </p>
-                {employees
-                  .filter((e) => e.active)
-                  .map((e) => (
-                    <button
-                      key={e.id}
-                      onClick={() => {
-                        signIn(e.id);
-                        setSwitcherOpen(false);
-                        navigate('/dashboard');
-                      }}
-                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-slate-50 ${
-                        e.id === currentUser.id ? 'bg-slate-50' : ''
-                      }`}
-                    >
-                      <span className="text-navy-950">{e.name}</span>
-                      <Badge tone={e.role}>{e.role}</Badge>
-                    </button>
-                  ))}
-                <div className="mt-1 border-t border-slate-100 pt-1">
-                  <button
-                    onClick={() => {
-                      signOut();
-                      setSwitcherOpen(false);
-                      navigate('/');
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                  >
-                    <LogOut size={15} /> Sign out
-                  </button>
-                </div>
+            {menuOpen && (
+              <div className="absolute right-0 z-40 mt-2 w-52 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                <button
+                  onClick={handleSignOut}
+                  disabled={logout.isPending}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  <LogOut size={15} /> {logout.isPending ? 'Signing out…' : 'Sign out'}
+                </button>
               </div>
             )}
           </div>

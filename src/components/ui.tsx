@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Plus, User, X } from 'lucide-react';
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
@@ -30,6 +31,13 @@ const badgeStyles: Record<string, string> = {
   vaccination: 'bg-sky-100 text-sky-700',
   shower: 'bg-teal-100 text-teal-700',
   other: 'bg-slate-100 text-slate-600',
+  service: 'bg-violet-100 text-violet-700',
+  sale: 'bg-gold-300 text-navy-900',
+  refund: 'bg-red-100 text-red-700',
+  'pet-log': 'bg-teal-100 text-teal-700',
+  'supplier-order': 'bg-indigo-100 text-indigo-700',
+  discount: 'bg-purple-100 text-purple-700',
+  used: 'bg-slate-200 text-slate-500',
 };
 
 export function Badge({ tone = 'other', children }: { tone?: string; children: ReactNode }) {
@@ -39,6 +47,82 @@ export function Badge({ tone = 'other', children }: { tone?: string; children: R
     >
       {children}
     </span>
+  );
+}
+
+export function EmployeeTag({ name }: { name: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+      <User size={11} />
+      {name}
+    </span>
+  );
+}
+
+export function TabSwitch<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex gap-2 rounded-lg bg-slate-100 p-1">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+            value === opt.value ? 'bg-white text-navy-950 shadow-sm' : 'text-slate-500'
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function PhoneListInput({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+  const phones = value.length > 0 ? value : [''];
+
+  const update = (index: number, next: string) => {
+    const copy = [...phones];
+    copy[index] = next;
+    onChange(copy);
+  };
+
+  const remove = (index: number) => {
+    const copy = phones.filter((_, i) => i !== index);
+    onChange(copy.length > 0 ? copy : ['']);
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      {phones.map((phone, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input value={phone} onChange={(e) => update(i, e.target.value)} placeholder="+20 1xx xxx xxxx" />
+          {phones.length > 1 && (
+            <button
+              type="button"
+              onClick={() => remove(i)}
+              className="shrink-0 rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onChange([...phones, ''])}
+        className="flex items-center gap-1 self-start text-xs font-medium text-navy-700 hover:underline"
+      >
+        <Plus size={13} /> Add phone number
+      </button>
+    </div>
   );
 }
 
@@ -81,6 +165,20 @@ export function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSe
     >
       {children}
     </select>
+  );
+}
+
+export function Toggle({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors ${checked ? 'bg-navy-800' : 'bg-slate-200'}`}
+    >
+      <span className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0'}`} />
+    </button>
   );
 }
 
@@ -148,8 +246,10 @@ export function StatTile({
   );
 }
 
+/** `value` is piastres (the backend's money unit) — this is the one place that divides by
+ * 100 for display. Never do that division anywhere else; pass piastres through unchanged. */
 export function formatCurrency(value: number): string {
-  return `EGP ${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  return `EGP ${(value / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 export function formatDate(iso: string): string {

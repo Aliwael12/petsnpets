@@ -1,5 +1,4 @@
-import { Document, Page, Text, View, StyleSheet, pdf } from '@react-pdf/renderer';
-import type { Product, Transaction } from '../types';
+import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 
 const styles = StyleSheet.create({
   page: { padding: 36, fontSize: 10, fontFamily: 'Helvetica', color: '#16192b' },
@@ -21,37 +20,54 @@ const styles = StyleSheet.create({
   headerCell: { fontSize: 8, textTransform: 'uppercase', color: '#64748b' },
   totalsBox: { marginTop: 12, alignSelf: 'flex-end', width: 200 },
   totalsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  grandTotalRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#101c4d' },
+  grandTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#101c4d',
+  },
   grandTotalLabel: { fontSize: 11, fontWeight: 700, color: '#101c4d' },
   grandTotalValue: { fontSize: 11, fontWeight: 700, color: '#101c4d' },
   footer: { marginTop: 40, fontSize: 8, color: '#94a3b8', textAlign: 'center' },
 });
 
-function money(v: number) {
-  return `EGP ${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+// Amounts arrive in piastres (integer, matching the DB); this is the one place they're
+// divided by 100 for display.
+function money(piastres: number) {
+  return `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
-interface InvoiceDocProps {
-  transaction: Transaction;
-  products: Product[];
+export interface InvoiceDocProps {
+  transaction: {
+    invoiceYear: number;
+    invoiceNo: number;
+    customerName: string;
+    createdAt: Date | string;
+    subtotal: number;
+    discountAmount?: number | null;
+    total: number;
+    items: { productName: string; quantity: number; unitPrice: number }[];
+  };
   soldByName: string;
 }
 
-export function InvoiceDocument({ transaction, products, soldByName }: InvoiceDocProps) {
-  const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id;
+export function InvoiceDocument({ transaction, soldByName }: InvoiceDocProps) {
+  const invoiceNo = `INV-${transaction.invoiceYear}-${String(transaction.invoiceNo).padStart(5, '0')}`;
 
   return (
     <Document>
       <Page size="A5" style={styles.page}>
         <View style={styles.header}>
           <View>
-            <Text style={styles.brand}>PETS &amp; PETS</Text>
-            <Text style={styles.brandSub}>Cats Hotel and Clinic</Text>
+            <Text style={styles.brand}>ELITE BLUE</Text>
+            <Text style={styles.brandSub}>Veterinary Center</Text>
           </View>
           <View>
             <Text style={styles.invoiceTitle}>INVOICE</Text>
             <Text style={styles.metaLabel}>Invoice No.</Text>
-            <Text style={styles.metaValue}>{transaction.id.toUpperCase()}</Text>
+            <Text style={styles.metaValue}>{invoiceNo}</Text>
             <Text style={styles.metaLabel}>Date</Text>
             <Text style={styles.metaValue}>{new Date(transaction.createdAt).toLocaleString('en-GB')}</Text>
           </View>
@@ -76,7 +92,7 @@ export function InvoiceDocument({ transaction, products, soldByName }: InvoiceDo
           </View>
           {transaction.items.map((item, idx) => (
             <View style={styles.tableRow} key={idx}>
-              <Text style={styles.colName}>{productName(item.productId)}</Text>
+              <Text style={styles.colName}>{item.productName}</Text>
               <Text style={styles.colQty}>{item.quantity}</Text>
               <Text style={styles.colPrice}>{money(item.unitPrice)}</Text>
               <Text style={styles.colTotal}>{money(item.unitPrice * item.quantity)}</Text>
@@ -85,26 +101,26 @@ export function InvoiceDocument({ transaction, products, soldByName }: InvoiceDo
         </View>
 
         <View style={styles.totalsBox}>
+          {transaction.discountAmount ? (
+            <>
+              <View style={styles.totalsRow}>
+                <Text>Subtotal</Text>
+                <Text>{money(transaction.subtotal)}</Text>
+              </View>
+              <View style={styles.totalsRow}>
+                <Text>Discount</Text>
+                <Text>-{money(transaction.discountAmount)}</Text>
+              </View>
+            </>
+          ) : null}
           <View style={styles.grandTotalRow}>
             <Text style={styles.grandTotalLabel}>Total</Text>
             <Text style={styles.grandTotalValue}>{money(transaction.total)}</Text>
           </View>
         </View>
 
-        <Text style={styles.footer}>Thank you for shopping with Pets &amp; Pets. This is a system-generated invoice.</Text>
+        <Text style={styles.footer}>Thank you for visiting Elite Blue Veterinary Center. This is a system-generated invoice.</Text>
       </Page>
     </Document>
   );
-}
-
-export async function downloadInvoice(transaction: Transaction, products: Product[], soldByName: string) {
-  const blob = await pdf(<InvoiceDocument transaction={transaction} products={products} soldByName={soldByName} />).toBlob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `invoice-${transaction.id}.pdf`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }

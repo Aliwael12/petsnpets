@@ -1,32 +1,73 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { useStore } from '../store/useStore';
-import { Badge, Button, Card, Input, Modal, Select } from '../components/ui';
-import type { Role } from '../types';
-import { Plus, Trash2 } from 'lucide-react';
+import { useAuthStore } from '../store/useAuthStore';
+import { useCreateEmployee, useEmployees, useRemoveEmployee, useToggleEmployeeActive, useUpdateEmployeeFeatures } from '../api/employees';
+import { ApiError } from '../api/client';
+import { Badge, Button, Card, Input, Modal, Select, Toggle } from '../components/ui';
+import { TOGGLEABLE_FEATURES } from '../lib/permissions';
+import type { Employee, Role } from '../types';
+import { Plus, Settings2, Trash2 } from 'lucide-react';
 
 const roles: Role[] = ['doctor', 'nurse', 'cashier'];
+const emptyForm = { name: '', role: 'cashier' as Role, pin: '' };
 
 export function Employees() {
-  const employees = useStore((s) => s.employees);
-  const addEmployee = useStore((s) => s.addEmployee);
-  const toggleEmployeeActive = useStore((s) => s.toggleEmployeeActive);
-  const removeEmployee = useStore((s) => s.removeEmployee);
-  const currentUser = useStore((s) => s.currentUser());
+  const currentUser = useAuthStore((s) => s.employee);
+  const { data: employees = [] } = useEmployees();
+  const createEmployee = useCreateEmployee();
+  const toggleActive = useToggleEmployeeActive();
+  const removeEmployee = useRemoveEmployee();
+  const updateFeatures = useUpdateEmployeeFeatures();
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', role: 'cashier' as Role });
+  const [form, setForm] = useState(emptyForm);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
+  const [permTarget, setPermTarget] = useState<Employee | null>(null);
+  const [permSelection, setPermSelection] = useState<string[]>([]);
+
+  const openPermissions = (e: Employee) => {
+    setPermTarget(e);
+    setPermSelection(e.enabledFeatures ?? []);
+  };
+
+  const toggleFeature = (path: string, checked: boolean) => {
+    setPermSelection((cur) => (checked ? [...cur, path] : cur.filter((p) => p !== path)));
+  };
+
+  const savePermissions = () => {
+    if (!permTarget) return;
+    updateFeatures.mutate(
+      { id: permTarget.id, enabledFeatures: permSelection },
+      {
+        onSuccess: () => {
+          toast.success('Permissions updated');
+          setPermTarget(null);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not update permissions'),
+      },
+    );
+  };
 
   const submit = () => {
     if (!form.name.trim()) {
       toast.error('Name is required');
       return;
     }
-    addEmployee(form.name.trim(), form.role);
-    toast.success('Employee added');
-    setForm({ name: '', role: 'cashier' });
-    setModalOpen(false);
+    if (form.pin.trim().length < 4) {
+      toast.error('PIN must be at least 4 digits');
+      return;
+    }
+    createEmployee.mutate(
+      { name: form.name.trim(), role: form.role, pin: form.pin.trim() },
+      {
+        onSuccess: () => {
+          toast.success('Employee added');
+          setForm(emptyForm);
+          setModalOpen(false);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not add employee'),
+      },
+    );
   };
 
   return (
@@ -49,37 +90,52 @@ export function Employees() {
                 <th className="px-5 py-3 font-medium">Name</th>
                 <th className="px-5 py-3 font-medium">Role</th>
                 <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Access</th>
                 <th className="px-5 py-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {employees.map((e) => (
-                <tr key={e.id}>
-                  <td className="px-5 py-3 font-medium text-navy-950">
-                    {e.name} {e.id === currentUser?.id && <span className="text-xs text-slate-400">(you)</span>}
-                  </td>
-                  <td className="px-5 py-3">
-                    <Badge tone={e.role}>{e.role}</Badge>
-                  </td>
-                  <td className="px-5 py-3">
-                    <Badge tone={e.active ? 'active' : 'inactive'}>{e.active ? 'Active' : 'Inactive'}</Badge>
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" onClick={() => toggleEmployeeActive(e.id)}>
-                        {e.active ? 'Deactivate' : 'Activate'}
-                      </Button>
+              {employees.map((e) => {
+                const featureCount = e.enabledFeatures?.length ?? 0;
+                return (
+                  <tr key={e.id}>
+                    <td className="px-5 py-3 font-medium text-navy-950">
+                      {e.name} {e.id === currentUser?.id && <span className="text-xs text-slate-400">(you)</span>}
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge tone={e.role}>{e.role}</Badge>
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge tone={e.active ? 'active' : 'inactive'}>{e.active ? 'Active' : 'Inactive'}</Badge>
+                    </td>
+                    <td className="px-5 py-3">
                       <button
-                        onClick={() => setRemoveTarget(e.id)}
+                        onClick={() => openPermissions(e)}
                         disabled={e.id === currentUser?.id}
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+                        className="flex items-center gap-1.5 text-sm text-navy-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
+                        title={e.id === currentUser?.id ? "You can't edit your own permissions" : undefined}
                       >
-                        <Trash2 size={15} />
+                        <Settings2 size={13} />
+                        {featureCount === TOGGLEABLE_FEATURES.length ? 'All tabs' : `${featureCount} tab${featureCount === 1 ? '' : 's'}`}
                       </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" onClick={() => toggleActive.mutate(e.id)}>
+                          {e.active ? 'Deactivate' : 'Activate'}
+                        </Button>
+                        <button
+                          onClick={() => setRemoveTarget(e.id)}
+                          disabled={e.id === currentUser?.id}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -102,11 +158,17 @@ export function Employees() {
                 ))}
               </Select>
             </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">PIN (4+ digits, used to sign in)</label>
+              <Input type="password" inputMode="numeric" value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} placeholder="••••" />
+            </div>
             <div className="mt-2 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setModalOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={submit}>Add employee</Button>
+              <Button onClick={submit} disabled={createEmployee.isPending}>
+                {createEmployee.isPending ? 'Adding…' : 'Add employee'}
+              </Button>
             </div>
           </div>
         </Modal>
@@ -114,7 +176,10 @@ export function Employees() {
 
       {removeTarget && (
         <Modal title="Remove employee" onClose={() => setRemoveTarget(null)}>
-          <p className="text-sm text-slate-600">Remove this employee from the roster? This cannot be undone.</p>
+          <p className="text-sm text-slate-600">
+            Remove this employee from the roster? If they have any sales, refunds or logs on record, removal isn&apos;t
+            possible — deactivate them instead.
+          </p>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setRemoveTarget(null)}>
               Cancel
@@ -122,12 +187,38 @@ export function Employees() {
             <Button
               variant="danger"
               onClick={() => {
-                removeEmployee(removeTarget);
-                toast.success('Employee removed');
+                removeEmployee.mutate(removeTarget, {
+                  onSuccess: () => toast.success('Employee removed'),
+                  onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not remove employee'),
+                });
                 setRemoveTarget(null);
               }}
             >
               Remove
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {permTarget && (
+        <Modal title={`Permissions — ${permTarget.name}`} onClose={() => setPermTarget(null)} wide>
+          <p className="mb-3 text-sm text-slate-500">
+            Choose which tabs {permTarget.name.split(' ')[0]} can see. A disabled tab disappears from their sidebar entirely.
+          </p>
+          <div className="flex flex-col divide-y divide-slate-100">
+            {TOGGLEABLE_FEATURES.map((item) => (
+              <div key={item.path} className="flex items-center justify-between py-2.5">
+                <span className="text-sm text-navy-950">{item.label}</span>
+                <Toggle checked={permSelection.includes(item.path)} onChange={(checked) => toggleFeature(item.path, checked)} />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setPermTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={savePermissions} disabled={updateFeatures.isPending}>
+              {updateFeatures.isPending ? 'Saving…' : 'Save'}
             </Button>
           </div>
         </Modal>

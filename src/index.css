@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @theme {
+  /* --- CRM (staff app) palette, unchanged ------------------------------- */
   --color-navy-100: #e4e8f7;
   --color-navy-200: #c9d1ef;
   --color-navy-950: #0a1238;
@@ -14,11 +15,39 @@
   --color-gold-400: #f7d444;
   --color-gold-300: #fbe388;
 
+  /* --- Public site palette, sampled from the Elite Blue logo ------------- */
+  --color-brand-50: #eef4fc;
+  --color-brand-100: #d9e7f8;
+  --color-brand-200: #b6cef0;
+  --color-brand-300: #85aee5;
+  --color-brand-400: #4a86d4;
+  --color-brand-500: #2f74c9;
+  --color-brand-600: #1454a3; /* the blue of the mark itself */
+  --color-brand-700: #0d3f7d;
+  --color-brand-800: #0a2f5e;
+  --color-brand-900: #071f3f;
+  /* Neutrals are biased cool toward the brand blue rather than pure grey, so
+     they read as chosen alongside the logo instead of defaulted. */
+  --color-ink: #0e141b;
+  --color-mute: #5d6b7a;
+  --color-line: #dde5ee;
+  --color-ground: #f4f7fb;
+
   --font-sans: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Built-in CSS easings are too weak to feel intentional — these are the stronger
+   custom curves every transition on the public site uses. */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 html {
   color-scheme: light;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -47,4 +76,120 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #c7cbe0;
   border-radius: 999px;
+}
+
+/* ======================================================================== */
+/* Public website                                                            */
+/* ======================================================================== */
+
+[data-site] {
+  font-family: var(--font-body);
+  color: var(--color-ink);
+  background: #ffffff;
+}
+
+[data-site] h1,
+[data-site] h2,
+[data-site] h3 {
+  font-family: var(--font-display);
+  text-wrap: balance;
+  letter-spacing: -0.02em;
+}
+
+/* Scroll-reveal. Entrances start from scale(0.98)/8px, never from scale(0) or a
+   large offset — nothing in the real world appears out of nothing. */
+[data-site] [data-reveal] {
+  opacity: 0;
+  transform: translateY(10px) scale(0.99);
+  transition:
+    opacity 620ms var(--ease-out),
+    transform 620ms var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+[data-site] [data-reveal='shown'] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Every pressable element confirms the press. Transform-only so it stays on the
+   GPU, and short enough (160ms) to feel like direct manipulation. */
+[data-site] .pressable {
+  transition:
+    transform 160ms var(--ease-out),
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+[data-site] .pressable:active {
+  transform: scale(0.97);
+}
+
+/* Touch devices fire :hover on tap, which strands elements in a hover state —
+   gate every hover-only affordance behind a real pointer. */
+@media (hover: hover) and (pointer: fine) {
+  [data-site] .lift:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 40px -24px rgb(10 47 94 / 0.45);
+    border-color: var(--color-brand-200);
+  }
+}
+
+[data-site] .lift {
+  transition:
+    transform 220ms var(--ease-out),
+    box-shadow 220ms var(--ease-out),
+    border-color 220ms ease;
+}
+
+/* Step changes in the booking card. A keyframe is right here (unlike interactive
+   state, which uses transitions) because each step mounts fresh and plays exactly
+   once — there is no in-flight animation to interrupt and retarget. */
+@keyframes bookingIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes bookingIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
+/* The logo is a JPEG on white; multiply drops its white box onto tinted surfaces. */
+[data-site] .logo-blend {
+  mix-blend-mode: multiply;
+}
+
+[data-site] .tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion means gentler, not none: opacity still carries meaning, all
+   movement goes away. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  [data-site] [data-reveal] {
+    transform: none;
+    transition: opacity 200ms ease;
+  }
+  [data-site] .pressable:active,
+  [data-site] .lift:hover {
+    transform: none;
+  }
 }

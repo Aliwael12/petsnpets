@@ -1,85 +1,140 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { useStore } from '../store/useStore';
-import { Badge, Button, Card, CardHeader, EmptyState, Input, Modal, Select, formatDate, formatDateTime } from '../components/ui';
+import { Link, useSearchParams } from 'react-router-dom';
+import { usePet, usePets, useCreatePet } from '../api/pets';
+import { useClients } from '../api/clients';
+import { useCreatePetLog, usePetLogs } from '../api/petLogs';
+import { ApiError } from '../api/client';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Input,
+  Modal,
+  PhoneListInput,
+  Select,
+  formatDate,
+  formatDateTime,
+} from '../components/ui';
 import type { LogType, Species } from '../types';
-import { CalendarClock, PawPrint, Plus, Search } from 'lucide-react';
+import { PawPrint, Plus, Search, UserCircle2 } from 'lucide-react';
 
 const speciesOptions: Species[] = ['dog', 'cat', 'bird', 'rabbit', 'other'];
 const logTypeOptions: LogType[] = ['vaccination', 'shower', 'other'];
 
-export function PetLogs() {
-  const pets = useStore((s) => s.pets);
-  const petLogs = useStore((s) => s.petLogs);
-  const employees = useStore((s) => s.employees);
-  const currentUser = useStore((s) => s.currentUser());
-  const addPet = useStore((s) => s.addPet);
-  const addPetLog = useStore((s) => s.addPetLog);
+const emptyPetForm = { name: '', species: 'dog' as Species, breed: '', clientId: '', phones: [] as string[] };
+const emptyNewClientForm = { name: '', phones: [''] as string[] };
 
-  const [tab, setTab] = useState<'directory' | 'due'>('directory');
+export function PetLogs() {
   const [search, setSearch] = useState('');
-  const [selectedPetId, setSelectedPetId] = useState<string | null>(pets[0]?.id ?? null);
+  const { data: pets = [] } = usePets(search);
+  const { data: clients = [] } = useClients();
+  const createPet = useCreatePet();
+
+  const [searchParams] = useSearchParams();
+  const [selectedPetId, setSelectedPetId] = useState<string | null>(null);
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [petModalOpen, setPetModalOpen] = useState(false);
+  const [newClientMode, setNewClientMode] = useState(false);
 
   const [logForm, setLogForm] = useState({ logType: 'vaccination' as LogType, description: '', nextDueDate: '' });
-  const [petForm, setPetForm] = useState({ name: '', species: 'dog' as Species, breed: '', ownerName: '', ownerContact: '' });
+  const [petForm, setPetForm] = useState(emptyPetForm);
+  const [newClientForm, setNewClientForm] = useState(emptyNewClientForm);
 
-  const employeeName = (id: string) => employees.find((e) => e.id === id)?.name ?? 'Unknown';
+  useEffect(() => {
+    const petParam = searchParams.get('pet');
+    if (petParam) {
+      setSelectedPetId(petParam);
+    } else if (!selectedPetId && pets.length > 0) {
+      setSelectedPetId(pets[0].id);
+    }
+  }, [searchParams, pets, selectedPetId]);
 
-  const filteredPets = useMemo(
-    () =>
-      pets.filter(
-        (p) =>
-          p.name.toLowerCase().includes(search.toLowerCase()) || p.ownerName.toLowerCase().includes(search.toLowerCase()),
-      ),
-    [pets, search],
-  );
+  const { data: selectedPet } = usePet(selectedPetId);
+  const { data: selectedLogsRaw = [] } = usePetLogs(selectedPetId);
+  const addPetLog = useCreatePetLog(selectedPetId ?? '');
 
-  const selectedPet = pets.find((p) => p.id === selectedPetId) ?? null;
-  const selectedLogs = petLogs
-    .filter((l) => l.petId === selectedPetId)
-    .sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime());
-
-  const upcoming = useMemo(() => {
-    const now = Date.now();
-    return petLogs
-      .filter((l) => l.nextDueDate)
-      .map((l) => ({ log: l, pet: pets.find((p) => p.id === l.petId)! }))
-      .filter((entry) => entry.pet)
-      .sort((a, b) => new Date(a.log.nextDueDate!).getTime() - new Date(b.log.nextDueDate!).getTime())
-      .map((entry) => ({ ...entry, overdue: new Date(entry.log.nextDueDate!).getTime() < now }));
-  }, [petLogs, pets]);
+  const selectedLogs = [...selectedLogsRaw].sort((a, b) => +new Date(b.performedAt) - +new Date(a.performedAt));
 
   const submitLog = () => {
-    if (!selectedPet || !currentUser) return;
+    if (!selectedPet) return;
     if (!logForm.description.trim()) {
       toast.error('Description is required');
       return;
     }
-    addPetLog({
-      petId: selectedPet.id,
-      logType: logForm.logType,
-      description: logForm.description.trim(),
-      performedBy: currentUser.id,
-      performedAt: new Date().toISOString(),
-      nextDueDate: logForm.nextDueDate ? new Date(logForm.nextDueDate).toISOString() : undefined,
-    });
-    toast.success('Log entry added');
-    setLogForm({ logType: 'vaccination', description: '', nextDueDate: '' });
-    setLogModalOpen(false);
+    addPetLog.mutate(
+      {
+        logType: logForm.logType,
+        description: logForm.description.trim(),
+        nextDueDate: logForm.nextDueDate ? new Date(logForm.nextDueDate).toISOString() : undefined,
+      },
+      {
+        onSuccess: () => {
+          toast.success('Log entry added');
+          setLogForm({ logType: 'vaccination', description: '', nextDueDate: '' });
+          setLogModalOpen(false);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not add log'),
+      },
+    );
+  };
+
+  const resetPetModal = () => {
+    setPetForm(emptyPetForm);
+    setNewClientForm(emptyNewClientForm);
+    setNewClientMode(false);
+    setPetModalOpen(false);
   };
 
   const submitPet = () => {
-    if (!petForm.name.trim() || !petForm.ownerName.trim()) {
-      toast.error('Pet name and owner name are required');
+    if (!petForm.name.trim()) {
+      toast.error('Pet name is required');
       return;
     }
-    const newPet = addPet({ ...petForm, name: petForm.name.trim(), ownerName: petForm.ownerName.trim() });
-    toast.success('Pet added');
-    setSelectedPetId(newPet.id);
-    setPetForm({ name: '', species: 'dog', breed: '', ownerName: '', ownerContact: '' });
-    setPetModalOpen(false);
+    const phones = petForm.phones.map((p) => p.trim()).filter(Boolean);
+
+    if (newClientMode) {
+      const name = newClientForm.name.trim();
+      const clientPhones = newClientForm.phones.map((p) => p.trim()).filter(Boolean);
+      if (!name) {
+        toast.error('Client name is required');
+        return;
+      }
+      if (clientPhones.length === 0) {
+        toast.error('At least one phone number is required');
+        return;
+      }
+      createPet.mutate(
+        { name: petForm.name.trim(), species: petForm.species, breed: petForm.breed.trim(), newClient: { name, phones: clientPhones }, phones },
+        {
+          onSuccess: (newPet) => {
+            toast.success('Pet added');
+            setSelectedPetId(newPet.id);
+            resetPetModal();
+          },
+          onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not add pet'),
+        },
+      );
+      return;
+    }
+
+    if (!petForm.clientId) {
+      toast.error('Select or add a client');
+      return;
+    }
+    createPet.mutate(
+      { name: petForm.name.trim(), species: petForm.species, breed: petForm.breed.trim(), clientId: petForm.clientId, phones },
+      {
+        onSuccess: (newPet) => {
+          toast.success('Pet added');
+          setSelectedPetId(newPet.id);
+          resetPetModal();
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not add pet'),
+      },
+    );
   };
 
   return (
@@ -87,26 +142,11 @@ export function PetLogs() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-navy-950">Pet logs</h1>
-          <p className="text-sm text-slate-500">Directory, service history and upcoming vaccinations</p>
-        </div>
-        <div className="flex gap-2 rounded-lg bg-slate-100 p-1">
-          <button
-            onClick={() => setTab('directory')}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === 'directory' ? 'bg-white text-navy-950 shadow-sm' : 'text-slate-500'}`}
-          >
-            Directory
-          </button>
-          <button
-            onClick={() => setTab('due')}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === 'due' ? 'bg-white text-navy-950 shadow-sm' : 'text-slate-500'}`}
-          >
-            Upcoming due dates
-          </button>
+          <p className="text-sm text-slate-500">Directory and service history — see the Calendar tab for upcoming due dates</p>
         </div>
       </div>
 
-      {tab === 'directory' ? (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_1fr]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_1fr]">
           <Card className="flex flex-col">
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
               <div className="relative flex-1">
@@ -118,10 +158,10 @@ export function PetLogs() {
               </button>
             </div>
             <div className="max-h-[520px] divide-y divide-slate-100 overflow-y-auto">
-              {filteredPets.length === 0 ? (
+              {pets.length === 0 ? (
                 <EmptyState title="No pets found" />
               ) : (
-                filteredPets.map((p) => (
+                pets.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => setSelectedPetId(p.id)}
@@ -135,7 +175,7 @@ export function PetLogs() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-navy-950">{p.name}</p>
                       <p className="truncate text-xs text-slate-400">
-                        {p.breed} · {p.ownerName}
+                        {p.breed} · {p.client?.name ?? 'Unknown owner'}
                       </p>
                     </div>
                   </button>
@@ -151,13 +191,28 @@ export function PetLogs() {
               <>
                 <CardHeader
                   title={selectedPet.name}
-                  subtitle={`${selectedPet.breed} · Owner: ${selectedPet.ownerName} · ${selectedPet.ownerContact}`}
+                  subtitle={`${selectedPet.breed} · Owner: ${selectedPet.client?.name ?? 'Unknown'} · ${selectedPet.client?.phones[0]?.phone ?? ''}`}
                   action={
-                    <Button onClick={() => setLogModalOpen(true)}>
-                      <Plus size={15} /> Add log
-                    </Button>
+                    <div className="flex gap-2">
+                      {selectedPet.client && (
+                        <Link
+                          to={`/clients?client=${selectedPet.client.id}`}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-navy-800 hover:bg-slate-100"
+                        >
+                          <UserCircle2 size={15} /> View client
+                        </Link>
+                      )}
+                      <Button onClick={() => setLogModalOpen(true)}>
+                        <Plus size={15} /> Add log
+                      </Button>
+                    </div>
                   }
                 />
+                {selectedPet.phones && selectedPet.phones.length > 0 && (
+                  <p className="border-b border-slate-100 px-5 py-2 text-xs text-slate-400">
+                    Additional contact: {selectedPet.phones.map((p) => p.phone).join(' · ')}
+                  </p>
+                )}
                 {selectedLogs.length === 0 ? (
                   <EmptyState title="No log entries yet" subtitle="Add a vaccination, shower or other service entry" />
                 ) : (
@@ -173,7 +228,7 @@ export function PetLogs() {
                           </div>
                           <p className="text-sm text-navy-950">{log.description}</p>
                           <p className="text-xs text-slate-400">
-                            {employeeName(log.performedBy)} · {formatDateTime(log.performedAt)}
+                            {log.performedByEmployee?.name ?? 'Unknown'} · {formatDateTime(log.performedAt)}
                           </p>
                         </div>
                       </div>
@@ -184,33 +239,6 @@ export function PetLogs() {
             )}
           </Card>
         </div>
-      ) : (
-        <Card>
-          <CardHeader title="Upcoming vaccinations & follow-ups" subtitle="Sorted by soonest due date" />
-          {upcoming.length === 0 ? (
-            <EmptyState title="Nothing due" />
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {upcoming.map(({ log, pet, overdue }) => (
-                <div key={log.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-full ${overdue ? 'bg-red-100 text-red-600' : 'bg-navy-100 text-navy-800'}`}>
-                      <CalendarClock size={16} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-navy-950">
-                        {pet.name} <span className="text-slate-400">· {pet.ownerName}</span>
-                      </p>
-                      <p className="text-xs text-slate-400">{log.description}</p>
-                    </div>
-                  </div>
-                  <Badge tone={overdue ? 'low' : 'vaccination'}>{overdue ? 'Overdue' : formatDate(log.nextDueDate!)}</Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
 
       {logModalOpen && selectedPet && (
         <Modal title={`Add log for ${selectedPet.name}`} onClose={() => setLogModalOpen(false)}>
@@ -237,14 +265,16 @@ export function PetLogs() {
               <Button variant="ghost" onClick={() => setLogModalOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={submitLog}>Add log</Button>
+              <Button onClick={submitLog} disabled={addPetLog.isPending}>
+                {addPetLog.isPending ? 'Saving…' : 'Add log'}
+              </Button>
             </div>
           </div>
         </Modal>
       )}
 
       {petModalOpen && (
-        <Modal title="Add pet" onClose={() => setPetModalOpen(false)}>
+        <Modal title="Add pet" onClose={resetPetModal}>
           <div className="flex flex-col gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Pet name</label>
@@ -266,19 +296,47 @@ export function PetLogs() {
                 <Input value={petForm.breed} onChange={(e) => setPetForm({ ...petForm, breed: e.target.value })} />
               </div>
             </div>
+
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">Owner name</label>
-              <Input value={petForm.ownerName} onChange={(e) => setPetForm({ ...petForm, ownerName: e.target.value })} />
+              <div className="mb-1 flex items-center justify-between">
+                <label className="block text-xs font-medium text-slate-500">Owner / client</label>
+                <button type="button" className="text-xs font-medium text-navy-700 hover:underline" onClick={() => setNewClientMode((v) => !v)}>
+                  {newClientMode ? 'Choose existing' : '+ New client'}
+                </button>
+              </div>
+              {newClientMode ? (
+                <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
+                  <Input
+                    placeholder="Client name"
+                    value={newClientForm.name}
+                    onChange={(e) => setNewClientForm({ ...newClientForm, name: e.target.value })}
+                  />
+                  <PhoneListInput value={newClientForm.phones} onChange={(phones) => setNewClientForm({ ...newClientForm, phones })} />
+                </div>
+              ) : (
+                <Select value={petForm.clientId} onChange={(e) => setPetForm({ ...petForm, clientId: e.target.value })}>
+                  <option value="">Select client</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </div>
+
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">Owner contact</label>
-              <Input value={petForm.ownerContact} onChange={(e) => setPetForm({ ...petForm, ownerContact: e.target.value })} />
+              <label className="mb-1 block text-xs font-medium text-slate-500">Additional contact numbers (optional)</label>
+              <PhoneListInput value={petForm.phones} onChange={(phones) => setPetForm({ ...petForm, phones })} />
             </div>
+
             <div className="mt-2 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setPetModalOpen(false)}>
+              <Button variant="ghost" onClick={resetPetModal}>
                 Cancel
               </Button>
-              <Button onClick={submitPet}>Add pet</Button>
+              <Button onClick={submitPet} disabled={createPet.isPending}>
+                {createPet.isPending ? 'Saving…' : 'Add pet'}
+              </Button>
             </div>
           </div>
         </Modal>
