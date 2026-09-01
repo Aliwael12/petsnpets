@@ -1,7 +1,8 @@
+import 'dotenv/config';
 import postgres from 'postgres';
 
 const BASE = 'http://localhost:3001/v1';
-const sql = postgres('postgresql://postgres:postgres@127.0.0.1:55322/postgres');
+const sql = postgres(process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:55322/postgres');
 
 let pass = 0;
 let fail = 0;

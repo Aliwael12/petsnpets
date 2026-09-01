@@ -120,3 +120,58 @@ being paranoid about:
   distributed flood — anything internet-facing wants that at the edge instead.
 - The public reads (`services`, `opening-hours`, `availability`) deliberately project only
   name/price/time — never stock levels, cost, SKUs or client data.
+
+## Deploying to Vercel
+
+Both the frontend and the API deploy from this one repo/project — `vercel.json` builds
+`server/` first (`nest build`, real `tsc`) and the frontend second, and routes `/v1/*` to
+`api/index.ts`, a thin shim that hands off to the compiled `server/dist/src/serverless.js`.
+
+That file (not `api/index.ts` directly) is deliberately where the real NestJS bootstrap
+lives, and it's `server`'s own `tsc` that compiles it — Vercel's own function bundler is
+esbuild-based and does not reliably emit the decorator metadata Nest's dependency injection
+needs, which is what silently breaks a lot of "point Vercel straight at the TS source"
+NestJS deployments. Compiling through `tsc` first sidesteps that entirely: by the time
+Vercel's bundler sees anything, it's already plain JS with the metadata baked in.
+
+**Environment variables to set in the Vercel dashboard** (Project Settings → Environment
+Variables) — all of these are read server-side by the function, so they never reach the
+client bundle:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Your Supabase project's **transaction-mode** pooler connection string (port `6543`, not `5432`) — see below for why |
+| `DIRECT_URL` | Same value as `DATABASE_URL` is fine — required by env validation at boot, but nothing in the request path actually reads it (only `drizzle-kit` migrations do, and those don't run inside the function) |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `SUPABASE_ANON_KEY` | From Project Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | From Project Settings → API — never expose this to the client |
+| `SUPABASE_JWT_SECRET` | Any non-empty string — validated but not actually used (see the auth architecture note above) |
+| `OPERATOR_JWT_SECRET` | A real random secret, e.g. `openssl rand -hex 32` — **do not reuse the local dev placeholder** |
+| `OPERATOR_SESSION_TTL_HOURS` | `12` |
+| `INVOICE_BUCKET` | `invoices` |
+| `TIMEZONE` | `Africa/Cairo` |
+| `NODE_ENV` | `production` |
+
+And for the frontend build itself:
+
+| Variable | Value |
+|---|---|
+| `VITE_API_URL` | `/v1` — a relative path, not a full URL. Frontend and API share one domain on Vercel, so this is a same-origin request; CORS never enters into it in production. |
+
+**Why the transaction-mode pooler, not session-mode:** `DbModule` detects `process.env.VERCEL`
+and switches to a single-connection pool (`max: 1`, `prepare: false`) for exactly this reason
+— a serverless function may run as many concurrent, short-lived instances, and each one gets
+its own pool. A handful of instances at the session-mode pool size used for local dev
+(`max: 15`) would exhaust Supabase's connection ceiling almost immediately. Transaction-mode
+pooling (Supavisor/PgBouncer on port `6543`) is built for exactly this many-short-lived-clients
+shape; `prepare: false` is required alongside it because that pooling mode doesn't support
+session-level prepared statements.
+
+**What I could and couldn't verify locally:** I ran a full `vercel build` and confirmed the
+function bundles correctly (all runtime dependencies traced in, ~14MB, well under the size
+limit), then invoked the compiled handler directly with real HTTP requests and confirmed it
+correctly bootstraps and serves live data from the remote database. What I couldn't verify
+from this Windows machine is the actual Linux runtime — `argon2`'s native binary is
+platform-specific, and a local `npm install` here only fetches the Windows prebuild. Vercel's
+own build runs on Linux and will fetch the correct one automatically; this isn't something
+to fix, just something only the real deployment can confirm.

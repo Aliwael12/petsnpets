@@ -1,0 +1,14 @@
+{
+  "installCommand": "npm install && npm install --prefix server",
+  "buildCommand": "npm run build --prefix server && npm run build",
+  "functions": {
+    "api/index.ts": {
+      "memory": 1024,
+      "maxDuration": 15
+    }
+  },
+  "rewrites": [
+    { "source": "/v1/(.*)", "destination": "/api" },
+    { "source": "/((?!assets/|logo\\.jpeg|favicon).*)", "destination": "/index.html" }
+  ]
+}
