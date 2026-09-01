@@ -4,7 +4,8 @@
   "functions": {
     "api/index.ts": {
       "memory": 1024,
-      "maxDuration": 15
+      "maxDuration": 15,
+      "includeFiles": "../server/node_modules/pdfkit/**"
     }
   },
   "rewrites": [
