@@ -1,6 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { pdf } from '@react-pdf/renderer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { eq } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
@@ -9,7 +8,10 @@ import { transactions } from '../db/schema';
 import { NotFoundAppError, AppError } from '../common/errors/app-error';
 import { HttpStatus } from '@nestjs/common';
 import { SUPABASE_ADMIN } from '../supabase/supabase.module';
-import { InvoiceDocument } from './invoice-document';
+// @react-pdf/renderer (and, transitively, invoice-document.tsx) are NOT statically
+// imported here — see invoice-document.tsx's header comment for why: it's an ESM-only
+// package that CommonJS require() can't load on Vercel's actual runtime. Both are loaded
+// via dynamic import() inside renderAndStore() below instead, which works everywhere.
 
 @Injectable()
 export class InvoicesService {
@@ -35,7 +37,11 @@ export class InvoicesService {
     });
     if (!txn) throw new NotFoundAppError('Transaction', transactionId);
 
-    const buffer = await pdf(
+    const reactPdf = await import('@react-pdf/renderer');
+    const { createInvoiceDocument } = await import('./invoice-document.js');
+    const InvoiceDocument = createInvoiceDocument(reactPdf);
+
+    const buffer = await reactPdf.pdf(
       <InvoiceDocument
         transaction={{
           invoiceYear: txn.invoiceYear,
