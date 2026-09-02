@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { and, asc, desc, eq, gte, inArray, sql as rawSql } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
+import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
 import { clients, discounts, products, transactionItems, transactions, type Product } from '../db/schema';
 import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
@@ -19,13 +21,21 @@ export class SalesService {
     private readonly idempotency: IdempotencyService,
     private readonly inventory: InventoryService,
     private readonly discounts: DiscountsService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.tz = config.getOrThrow<string>('TIMEZONE');
+  }
+
+  private readonly tz: string;
 
   async list(query: ListSalesQueryDto) {
     const conditions = [
       query.soldBy ? eq(transactions.soldBy, query.soldBy) : undefined,
       query.clientId ? eq(transactions.clientId, query.clientId) : undefined,
       query.sinceDays ? gte(transactions.createdAt, rawSql`now() - (${query.sinceDays} || ' days')::interval`) : undefined,
+      // Inclusive Cairo day bounds. Independent of sinceDays: one is a rolling instant
+      // window, the other a calendar window, and supplying both simply intersects them.
+      ...tsInRange(transactions.createdAt, toDayRange(query), this.tz),
     ].filter((c) => c !== undefined);
 
     let rows = await this.db.query.transactions.findMany({

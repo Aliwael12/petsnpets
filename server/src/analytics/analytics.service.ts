@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, gte, lt, sql as rawSql } from 'drizzle-orm';
+import { and, eq, sql as rawSql, type SQL, type SQLWrapper } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
 import { discounts, petLogs, refunds, supplierOrders, transactions } from '../db/schema';
+import { andClause, dateInRange, monthDayBounds, tsInRange, type DayRange } from '../common/date-range';
 import type { ActivityEntry } from './activity.types';
 import type { FinancialSummary, FinancialWindow, MethodBreakdown, PaymentBucket } from './financial-summary.types';
 
@@ -16,6 +17,12 @@ const emptyBreakdown = (): MethodBreakdown => ({ cash: 0, instapay: 0, card: 0, 
  * bigint back as a string, so it has to come through Number() here. */
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v ?? 0));
 
+/** A bar you cannot point at is not a data point, so bucket width grows with the span.
+ *  Passed to SQL as binds so the server's bucketing and the client's axis labelling can
+ *  never drift. */
+const BUCKET_DAY_MAX_SPAN = 62;
+const BUCKET_WEEK_MAX_SPAN = 366;
+
 @Injectable()
 export class AnalyticsService {
   private readonly tz: string;
@@ -27,107 +34,272 @@ export class AnalyticsService {
     this.tz = config.getOrThrow<string>('TIMEZONE');
   }
 
-  /** Daily revenue for the last N days, bucketed in the business's own timezone — not UTC,
-   * and never the caller's browser timezone (the bug this replaces: the frontend used
-   * to compute "today" with `new Date()` in whatever zone the viewer happened to be in). */
-  async revenueTimeseries(days: number) {
-    return this.db.execute<{ date: string; total: number }>(rawSql`
-      with bounds as (
-        select date_trunc('day', now() at time zone ${this.tz}) as today
+  /**
+   * Money per bucket across a window, bucketed in the clinic's own timezone — not UTC, and
+   * never the caller's browser timezone (the bug this replaces: the frontend used to
+   * compute "today" with `new Date()` in whatever zone the viewer happened to be in).
+   *
+   * Returns FOUR streams per bucket, not just gross sales, because Money in / out's cash
+   * flow chart reads this: in = total - refunds, out = stock + operating, which makes the
+   * bars sum to exactly the Net tile above them rather than merely resembling it.
+   *
+   * An open side spans the DATA, not "today" and not "30 days ago": the floor is the
+   * earliest and the ceiling the latest day any of the four streams has a row on. Anything
+   * narrower would plot fewer days than the tiles above the chart counted, and the two
+   * would silently disagree — which is exactly what an unbounded range asks them not to do.
+   *
+   * Bucket width adapts to the span so a five-year range is 60 monthly bars, not 1,825
+   * one-pixel daily ones. Every fact stream is pre-aggregated per day BEFORE joining, so a
+   * day with 3 sales and 2 refunds cannot fan out into 6 rows.
+   */
+  async revenueTimeseries(q: { days?: number; from?: string; to?: string }) {
+    const from = q.from ?? null;
+    const to = q.to ?? null;
+    // Opt-in, not defaulted: a defaulted `days` would quietly govern the cleared-range
+    // chart and cap it at 30 days while every sibling card on the screen showed all time.
+    const days = q.days ?? null;
+
+    const rows = await this.db.execute<{
+      date: string;
+      end_date: string;
+      total: string | number;
+      refunds: string | number;
+      stock: string | number;
+      operating: string | number;
+    }>(rawSql`
+      with tod as (select (now() at time zone ${this.tz})::date as today),
+      -- The span of every stream that can appear in a bucket. least()/greatest() ignore
+      -- NULLs, so a table with no rows simply doesn't constrain the window, and all four
+      -- being empty leaves NULL for the coalesce below to handle.
+      extent as (
+        select
+          least(
+            (select min(t.created_at at time zone ${this.tz})::date from transactions t),
+            (select min(r.created_at at time zone ${this.tz})::date from refunds r),
+            (select min(o.received_at at time zone ${this.tz})::date from supplier_orders o),
+            (select min(e.paid_on) from expenses e where e.voided_at is null)
+          ) as lo,
+          greatest(
+            (select max(t.created_at at time zone ${this.tz})::date from transactions t),
+            (select max(r.created_at at time zone ${this.tz})::date from refunds r),
+            (select max(o.received_at at time zone ${this.tz})::date from supplier_orders o),
+            (select max(e.paid_on) from expenses e where e.voided_at is null)
+          ) as hi
       ),
-      series as (
-        select generate_series((select today from bounds) - ((${days} - 1) || ' days')::interval, (select today from bounds), '1 day') as day
+      bounds as (
+        select
+          coalesce(
+            ${to}::date,
+            -- A row dated in the future (a post-dated receipt) is inside an open-ended
+            -- window, so the chart has to reach it too.
+            greatest(tod.today, extent.hi),
+            tod.today
+          ) as d_to,
+          coalesce(
+            ${from}::date,
+            -- Legacy "last N days", now only when a caller explicitly asks for it.
+            case when ${days}::int is not null and ${to}::date is null then tod.today - (${days}::int - 1) end,
+            extent.lo
+          ) as d_from_raw
+        from tod, extent
+      ),
+      span as (select d_to, least(coalesce(d_from_raw, d_to), d_to) as d_from from bounds),
+      unit as (
+        select d_from, d_to,
+          case when (d_to - d_from) + 1 <= ${BUCKET_DAY_MAX_SPAN}  then 'day'
+               when (d_to - d_from) + 1 <= ${BUCKET_WEEK_MAX_SPAN} then 'week'
+               else 'month' end as u
+        from span
+      ),
+      keyed as (
+        select g.d::date as d,
+          case unit.u
+            when 'day'  then g.d::date
+            -- Egypt's business week is Sat-Thu; date_trunc('week') is ISO Monday, so
+            -- shift forward two days, truncate, shift back.
+            when 'week' then (date_trunc('week', g.d + interval '2 day') - interval '2 day')::date
+            else date_trunc('month', g.d)::date
+          end as bucket
+        from unit, generate_series(unit.d_from, unit.d_to, interval '1 day') as g(d)
+      ),
+      tx as (
+        select (t.created_at at time zone ${this.tz})::date as d, sum(t.total)::bigint as amt
+        from transactions t, unit
+        where t.created_at >= (unit.d_from::timestamp at time zone ${this.tz})
+          and t.created_at <  ((unit.d_to + 1)::timestamp at time zone ${this.tz})
+        group by 1
+      ),
+      rf as (
+        select (r.created_at at time zone ${this.tz})::date as d, sum(r.total)::bigint as amt
+        from refunds r, unit
+        where r.created_at >= (unit.d_from::timestamp at time zone ${this.tz})
+          and r.created_at <  ((unit.d_to + 1)::timestamp at time zone ${this.tz})
+        group by 1
+      ),
+      so as (
+        select (o.received_at at time zone ${this.tz})::date as d, sum(o.cost_total)::bigint as amt
+        from supplier_orders o, unit
+        where o.received_at >= (unit.d_from::timestamp at time zone ${this.tz})
+          and o.received_at <  ((unit.d_to + 1)::timestamp at time zone ${this.tz})
+        group by 1
+      ),
+      ex as (
+        select e.paid_on as d, sum(e.amount)::bigint as amt
+        from expenses e, unit
+        where e.voided_at is null and e.paid_on >= unit.d_from and e.paid_on <= unit.d_to
+        group by 1
       )
       select
-        to_char(s.day, 'YYYY-MM-DD') as date,
-        coalesce(sum(t.total), 0)::bigint::int as total
-      from series s
-      left join transactions t
-        on date_trunc('day', t.created_at at time zone ${this.tz}) = s.day
-      group by s.day
-      order by s.day
+        -- min/max of the days actually IN RANGE, not the calendar bucket's own edges: a
+        -- range starting on the 15th must not label its first month bucket "1 Jun".
+        to_char(min(k.d), 'YYYY-MM-DD') as date,
+        to_char(max(k.d), 'YYYY-MM-DD') as end_date,
+        coalesce(sum(tx.amt), 0)::bigint as total,
+        coalesce(sum(rf.amt), 0)::bigint as refunds,
+        coalesce(sum(so.amt), 0)::bigint as stock,
+        coalesce(sum(ex.amt), 0)::bigint as operating
+      from keyed k
+      left join tx on tx.d = k.d
+      left join rf on rf.d = k.d
+      left join so on so.d = k.d
+      left join ex on ex.d = k.d
+      group by k.bucket
+      order by k.bucket
     `);
+
+    return rows.map((r) => ({
+      date: r.date,
+      endDate: r.end_date,
+      total: num(r.total),
+      refunds: num(r.refunds),
+      stock: num(r.stock),
+      operating: num(r.operating),
+    }));
   }
 
-  async bestSellers(limit = 8) {
-    return this.db.execute<{ id: string; name: string; quantity: number; revenue: number }>(rawSql`
-      select p.id, p.name, sum(ti.quantity)::int as quantity, sum(ti.quantity * ti.unit_price)::bigint::int as revenue
+  async bestSellers(range: DayRange, limit = 8) {
+    const rows = await this.db.execute<{ id: string; name: string; quantity: number; revenue: string | number }>(rawSql`
+      select p.id, p.name,
+             sum(ti.quantity)::int as quantity,
+             sum(ti.quantity * ti.unit_price)::bigint as revenue
       from transaction_items ti
+      -- transaction_items has no date column of its own; the sale's instant lives on the
+      -- parent row. transaction_id is NOT NULL with an FK, so this join is strictly 1:1
+      -- and cannot change the unfiltered numbers.
+      join transactions t on t.id = ti.transaction_id
       join products p on p.id = ti.product_id
+      where true ${this.ts(rawSql`t.created_at`, range)}
       group by p.id, p.name
       order by revenue desc
       limit ${limit}
     `);
+    return rows.map((r) => ({ ...r, revenue: num(r.revenue) }));
   }
 
-  async revenueByEmployee() {
-    return this.db.execute<{ id: string; name: string; revenue: number }>(rawSql`
-      select e.id, e.name, sum(t.total)::bigint::int as revenue
+  async revenueByEmployee(range: DayRange) {
+    // Employees with no sales in the range drop out entirely, exactly as they do from the
+    // all-time list today. Deliberately not a right join.
+    const rows = await this.db.execute<{ id: string; name: string; revenue: string | number }>(rawSql`
+      select e.id, e.name, sum(t.total)::bigint as revenue
       from transactions t
       join employees e on e.id = t.sold_by
+      where true ${this.ts(rawSql`t.created_at`, range)}
       group by e.id, e.name
       order by revenue desc
     `);
+    return rows.map((r) => ({ ...r, revenue: num(r.revenue) }));
   }
 
-  async revenueByCategory() {
-    return this.db.execute<{ category: string; value: number }>(rawSql`
-      select p.category, sum(ti.quantity * ti.unit_price)::bigint::int as value
+  async revenueByCategory(range: DayRange) {
+    const rows = await this.db.execute<{ category: string; value: string | number }>(rawSql`
+      select p.category, sum(ti.quantity * ti.unit_price)::bigint as value
       from transaction_items ti
+      join transactions t on t.id = ti.transaction_id
       join products p on p.id = ti.product_id
+      where true ${this.ts(rawSql`t.created_at`, range)}
       group by p.category
     `);
+    return rows.map((r) => ({ ...r, value: num(r.value) }));
   }
 
   /** "Clinic services" vs. "pet shop" — the split is purely `products.category = 'service'`
    * vs. everything else, matching how catalog.products.service.dto derives `kind`. */
-  async revenueSplit(kind: 'service' | 'shop') {
+  async revenueSplit(kind: 'service' | 'shop', range: DayRange) {
     const isService = kind === 'service';
-    const rows = await this.db.execute<{ id: string; name: string; revenue: number }>(rawSql`
-      select p.id, p.name, sum(ti.quantity * ti.unit_price)::bigint::int as revenue
+    const raw = await this.db.execute<{ id: string; name: string; revenue: string | number }>(rawSql`
+      select p.id, p.name, sum(ti.quantity * ti.unit_price)::bigint as revenue
       from transaction_items ti
+      join transactions t on t.id = ti.transaction_id
       join products p on p.id = ti.product_id
-      where (p.category = 'service') = ${isService}
+      where (p.category = 'service') = ${isService} ${this.ts(rawSql`t.created_at`, range)}
       group by p.id, p.name
       order by revenue desc
     `);
+    // MUST run after num(): postgres-js hands ::bigint back as a STRING, and
+    // '12345' + '6789' is '123456789'.
+    const rows = raw.map((r) => ({ ...r, revenue: num(r.revenue) }));
     const total = rows.reduce((sum, r) => sum + r.revenue, 0);
     return { total, items: rows.slice(0, 8) };
   }
 
-  async employeeSummary(employeeId: string, year?: number, month?: number) {
-    const { start, end, resolvedYear, resolvedMonth } = await this.resolveMonthBounds(year, month);
+  /**
+   * Everything one employee did in a window. `from`/`to` win when supplied; otherwise the
+   * window is the calendar month, resolved the way it always has been — so a month-defaulted
+   * request and a range-selected one run through identical predicates.
+   */
+  async employeeSummary(q: { employeeId: string; year?: number; month?: number; from?: string; to?: string }) {
+    const { employeeId } = q;
+    let range: DayRange;
+    let resolvedYear: number | undefined;
+    let resolvedMonth: number | undefined;
+
+    // A cleared range and "no range supplied" are the same request on the wire, and both
+    // mean all time — the same rule the other analytics endpoints follow. The calendar
+    // month is used ONLY when a caller explicitly asks for one with year+month.
+    if (q.year === undefined || q.month === undefined) {
+      range = { from: q.from ?? null, to: q.to ?? null };
+    } else {
+      const m = await this.resolveMonthBounds(q.year, q.month);
+      resolvedYear = m.resolvedYear;
+      resolvedMonth = m.resolvedMonth;
+      range = monthDayBounds(m.resolvedYear, m.resolvedMonth);
+    }
+
+    const inTs = (col: SQLWrapper) => tsInRange(col, range, this.tz);
 
     const [sales, refundRows, petLogRows, supplierOrderRows, discountRows] = await Promise.all([
       this.db
         .select()
         .from(transactions)
-        .where(and(eq(transactions.soldBy, employeeId), gte(transactions.createdAt, start), lt(transactions.createdAt, end))),
+        .where(and(eq(transactions.soldBy, employeeId), ...inTs(transactions.createdAt))),
       this.db
         .select()
         .from(refunds)
-        .where(and(eq(refunds.refundedBy, employeeId), gte(refunds.createdAt, start), lt(refunds.createdAt, end))),
+        .where(and(eq(refunds.refundedBy, employeeId), ...inTs(refunds.createdAt))),
       this.db
         .select()
         .from(petLogs)
-        .where(and(eq(petLogs.performedBy, employeeId), gte(petLogs.performedAt, start), lt(petLogs.performedAt, end))),
+        .where(and(eq(petLogs.performedBy, employeeId), ...inTs(petLogs.performedAt))),
       this.db
         .select()
         .from(supplierOrders)
-        .where(and(eq(supplierOrders.loggedBy, employeeId), gte(supplierOrders.receivedAt, start), lt(supplierOrders.receivedAt, end))),
+        .where(and(eq(supplierOrders.loggedBy, employeeId), ...inTs(supplierOrders.receivedAt))),
       this.db
         .select()
         .from(discounts)
-        .where(and(eq(discounts.createdBy, employeeId), gte(discounts.createdAt, start), lt(discounts.createdAt, end))),
+        .where(and(eq(discounts.createdBy, employeeId), ...inTs(discounts.createdAt))),
     ]);
 
     const salesRevenue = sales.reduce((sum, t) => sum + t.total, 0);
     const refundsAmount = refundRows.reduce((sum, r) => sum + r.total, 0);
     const ordersCost = supplierOrderRows.reduce((sum, o) => sum + o.costTotal, 0);
 
-    const activity = await this.buildActivityFeed(employeeId, start, end);
+    const activity = await this.buildActivityFeed(employeeId, range);
 
     return {
+      from: range.from,
+      to: range.to,
+      /** Present only when the window is exactly a calendar month. */
       year: resolvedYear,
       month: resolvedMonth,
       stats: {
@@ -156,11 +328,23 @@ export class AnalyticsService {
    * received_at; operating expenses on paid_on, which is already a Cairo calendar date
    * (a receipt's own date, routinely backdated) and so takes date bounds, not instants.
    */
-  async financialSummary(year?: number, month?: number): Promise<FinancialSummary> {
-    const { resolvedYear, resolvedMonth } = await this.resolveMonthBounds(year, month);
+  async financialSummary(q: {
+    year?: number;
+    month?: number;
+    from?: string;
+    to?: string;
+  }): Promise<FinancialSummary> {
+    const { resolvedYear, resolvedMonth } = await this.resolveMonthBounds(q.year, q.month);
+
+    // `range` means exactly the window the caller asked for, with one rule and no caveat:
+    // an unbounded side is unbounded. Both sides omitted therefore means ALL TIME, not
+    // "the current month" — a fallback that would make the honest state (the user clearing
+    // both dates) unrepresentable, so the card would print "All time" over this month's
+    // figures. `month` and `allTime` are unaffected and still answer what they always did.
+    const range: DayRange = { from: q.from ?? null, to: q.to ?? null };
 
     const rows = await this.db.execute<{
-      win: 'month' | 'all';
+      win: 'range' | 'month' | 'all';
       stream: 'sales' | 'refunds' | 'stock' | 'operating';
       method: string | null;
       amount: string | number;
@@ -172,30 +356,49 @@ export class AnalyticsService {
           make_date(${resolvedYear}, ${resolvedMonth}, 1) as d_start,
           (make_date(${resolvedYear}, ${resolvedMonth}, 1) + interval '1 month')::date as d_end
       )
-      select 'month' as win, 'sales' as stream, t.payment_method::text as method, sum(t.total)::bigint as amount
-        from transactions t, b where t.created_at >= b.ts_start and t.created_at < b.ts_end group by t.payment_method
+      -- the selected range
+      select 'range' as win, 'sales' as stream, t.payment_method::text as method, sum(t.total)::bigint as amount
+        from transactions t where true ${this.ts(rawSql`t.created_at`, range)} group by t.payment_method
       union all
-      select 'all', 'sales', t.payment_method::text, sum(t.total)::bigint from transactions t group by t.payment_method
+      select 'range', 'refunds', r.payment_method::text, sum(r.total)::bigint
+        from refunds r where true ${this.ts(rawSql`r.created_at`, range)} group by r.payment_method
+      union all
+      select 'range', 'stock', o.payment_method::text, sum(o.cost_total)::bigint
+        from supplier_orders o where true ${this.ts(rawSql`o.received_at`, range)} group by o.payment_method
+      union all
+      select 'range', 'operating', e.payment_method::text, sum(e.amount)::bigint
+        from expenses e where e.voided_at is null ${this.dt(rawSql`e.paid_on`, range)} group by e.payment_method
+      union all
+      -- the calendar month, exactly as before
+      select 'month', 'sales', t.payment_method::text, sum(t.total)::bigint
+        from transactions t, b where t.created_at >= b.ts_start and t.created_at < b.ts_end group by t.payment_method
       union all
       select 'month', 'refunds', r.payment_method::text, sum(r.total)::bigint
         from refunds r, b where r.created_at >= b.ts_start and r.created_at < b.ts_end group by r.payment_method
       union all
-      select 'all', 'refunds', r.payment_method::text, sum(r.total)::bigint from refunds r group by r.payment_method
-      union all
       select 'month', 'stock', o.payment_method::text, sum(o.cost_total)::bigint
         from supplier_orders o, b where o.received_at >= b.ts_start and o.received_at < b.ts_end group by o.payment_method
-      union all
-      select 'all', 'stock', o.payment_method::text, sum(o.cost_total)::bigint from supplier_orders o group by o.payment_method
       union all
       select 'month', 'operating', e.payment_method::text, sum(e.amount)::bigint
         from expenses e, b
         where e.voided_at is null and e.paid_on >= b.d_start and e.paid_on < b.d_end group by e.payment_method
       union all
+      -- all time. NEVER range-filtered: it is the figure the range is judged against.
+      select 'all', 'sales', t.payment_method::text, sum(t.total)::bigint from transactions t group by t.payment_method
+      union all
+      select 'all', 'refunds', r.payment_method::text, sum(r.total)::bigint from refunds r group by r.payment_method
+      union all
+      select 'all', 'stock', o.payment_method::text, sum(o.cost_total)::bigint
+        from supplier_orders o group by o.payment_method
+      union all
       select 'all', 'operating', e.payment_method::text, sum(e.amount)::bigint
         from expenses e where e.voided_at is null group by e.payment_method
     `);
 
+    // `range` and `month` duplicate work when no range is supplied. Deliberate: one code
+    // path, no conditional SQL, and these are index-range scans over a clinic-sized table.
     return {
+      range: { from: range.from, to: range.to, ...this.foldWindow(rows, 'range') },
       month: { year: resolvedYear, month: resolvedMonth, ...this.foldWindow(rows, 'month') },
       allTime: this.foldWindow(rows, 'all'),
     };
@@ -203,7 +406,7 @@ export class AnalyticsService {
 
   private foldWindow(
     rows: { win: string; stream: string; method: string | null; amount: string | number }[],
-    win: 'month' | 'all',
+    win: 'range' | 'month' | 'all',
   ): FinancialWindow {
     const incomeByMethod = emptyBreakdown();
     const expensesByMethod = emptyBreakdown();
@@ -252,6 +455,16 @@ export class AnalyticsService {
     };
   }
 
+  /** ` and <col> >= ... and <col> < ...` for a timestamptz column, or nothing when open. */
+  private ts(col: SQLWrapper, r: DayRange): SQL {
+    return andClause(tsInRange(col, r, this.tz));
+  }
+
+  /** The same window against a plain DATE column (expenses.paid_on). */
+  private dt(col: SQLWrapper, r: DayRange): SQL {
+    return andClause(dateInRange(col, r));
+  }
+
   private async resolveMonthBounds(year?: number, month?: number) {
     if (year && month) {
       const [row] = await this.db.execute<{ start_at: Date; end_at: Date }>(rawSql`
@@ -286,13 +499,7 @@ export class AnalyticsService {
 
   /** Mirrors the shape of the frontend's src/lib/activity.ts buildActivity() so the
    * ActivityFeed component can render this response without changes. */
-  private async buildActivityFeed(employeeId: string, startDate: Date, endDate: Date): Promise<ActivityEntry[]> {
-    // Drizzle's generic sql`` template (unlike the postgres-js driver's own tag function,
-    // or Drizzle's typed column comparators like gte()) does not serialize a raw JS Date
-    // into a bindable parameter — it passes it through as-is and the driver's bind step
-    // throws. Stringify explicitly; Postgres parses ISO 8601 as timestamptz correctly.
-    const start = startDate.toISOString();
-    const end = endDate.toISOString();
+  private async buildActivityFeed(employeeId: string, range: DayRange): Promise<ActivityEntry[]> {
     const rows = await this.db.execute<{
       id: string;
       type: ActivityEntry['type'];
@@ -305,9 +512,11 @@ export class AnalyticsService {
       select 'sale-' || t.id as id, 'sale' as type,
              'Sale to ' || t.customer_name as title,
              (select string_agg(p.name || ' ×' || ti.quantity, ', ') from transaction_items ti join products p on p.id = ti.product_id where ti.transaction_id = t.id) as detail,
+             -- ::int here and below is per-ROW, not a sum: one sale over EGP 21.4M is not
+             -- a thing. The aggregate queries above use ::bigint for exactly that reason.
              t.client_id, t.total::int as amount, t.created_at as at
       from transactions t
-      where t.sold_by = ${employeeId} and t.created_at >= ${start} and t.created_at < ${end}
+      where t.sold_by = ${employeeId} ${this.ts(rawSql`t.created_at`, range)}
 
       union all
 
@@ -317,7 +526,7 @@ export class AnalyticsService {
              t2.client_id, r.total::int, r.created_at
       from refunds r
       left join transactions t2 on t2.id = r.transaction_id
-      where r.refunded_by = ${employeeId} and r.created_at >= ${start} and r.created_at < ${end}
+      where r.refunded_by = ${employeeId} ${this.ts(rawSql`r.created_at`, range)}
 
       union all
 
@@ -327,7 +536,7 @@ export class AnalyticsService {
              pt.client_id, null, l.performed_at
       from pet_logs l
       join pets pt on pt.id = l.pet_id
-      where l.performed_by = ${employeeId} and l.performed_at >= ${start} and l.performed_at < ${end}
+      where l.performed_by = ${employeeId} ${this.ts(rawSql`l.performed_at`, range)}
 
       union all
 
@@ -338,7 +547,7 @@ export class AnalyticsService {
       from supplier_orders o
       join products p2 on p2.id = o.product_id
       join suppliers s on s.id = o.supplier_id
-      where o.logged_by = ${employeeId} and o.received_at >= ${start} and o.received_at < ${end}
+      where o.logged_by = ${employeeId} ${this.ts(rawSql`o.received_at`, range)}
 
       union all
 
@@ -348,9 +557,12 @@ export class AnalyticsService {
              d.note,
              d.client_id, d.value, d.created_at
       from discounts d
-      where d.created_by = ${employeeId} and d.created_at >= ${start} and d.created_at < ${end}
+      where d.created_by = ${employeeId} ${this.ts(rawSql`d.created_at`, range)}
 
       order by at desc
+      -- Bounded because the window is now user-chosen: a two-year range would otherwise
+      -- stream every row this employee ever touched into the browser.
+      limit 200
     `);
 
     return rows.map((r) => ({

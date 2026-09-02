@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dateRangeShape, isOrderedRange, ORDERED_RANGE_ISSUE } from '../../common/dto/date-range.dto';
 
 export const saleLineSchema = z.object({
   productId: z.uuid(),
@@ -22,10 +23,15 @@ export const createSaleSchema = z.object({
 });
 export type CreateSaleDto = z.infer<typeof createSaleSchema>;
 
-export const listSalesQuerySchema = z.object({
-  soldBy: z.uuid().optional(),
-  productId: z.uuid().optional(),
-  clientId: z.uuid().optional(),
-  sinceDays: z.coerce.number().int().positive().optional(),
-});
+export const listSalesQuerySchema = z
+  .object({
+    soldBy: z.uuid().optional(),
+    productId: z.uuid().optional(),
+    clientId: z.uuid().optional(),
+    /** A rolling instant window (now() - N days). Kept for the Dashboard's "recent sales". */
+    sinceDays: z.coerce.number().int().positive().optional(),
+    /** Inclusive Cairo calendar days on created_at — the Money in/out range filter. */
+    ...dateRangeShape,
+  })
+  .refine(isOrderedRange, ORDERED_RANGE_ISSUE);
 export type ListSalesQueryDto = z.infer<typeof listSalesQuerySchema>;

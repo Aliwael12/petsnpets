@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { desc, eq, sql as rawSql } from 'drizzle-orm';
+import { ConfigService } from '@nestjs/config';
+import { and, desc, eq, sql as rawSql } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
+import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
 import { refundItems, refunds, transactionItems, transactions } from '../db/schema';
 import { NotFoundAppError, RefundExceedsSoldError } from '../common/errors/app-error';
@@ -8,7 +10,7 @@ import { AuditService } from '../common/audit/audit.service';
 import { IdempotencyService } from '../common/idempotency/idempotency.service';
 import { InventoryService } from '../inventory/inventory.service';
 import type { Actor } from '../auth/auth.types';
-import type { CreateRefundDto } from './dto/refund.dto';
+import type { CreateRefundDto, ListRefundsQueryDto } from './dto/refund.dto';
 
 @Injectable()
 export class RefundsService {
@@ -17,10 +19,17 @@ export class RefundsService {
     private readonly audit: AuditService,
     private readonly idempotency: IdempotencyService,
     private readonly inventory: InventoryService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.tz = config.getOrThrow<string>('TIMEZONE');
+  }
 
-  list() {
+  private readonly tz: string;
+
+  list(query: ListRefundsQueryDto = {}) {
+    const conditions = tsInRange(refunds.createdAt, toDayRange(query), this.tz);
     return this.db.query.refunds.findMany({
+      where: conditions.length > 0 ? and(...conditions) : undefined,
       orderBy: [desc(refunds.createdAt)],
       with: {
         items: { with: { product: { columns: { id: true, name: true } } } },

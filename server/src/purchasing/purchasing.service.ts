@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, lte } from 'drizzle-orm';
+import { ConfigService } from '@nestjs/config';
+import { and, asc, eq } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
+import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
 import { products, suppliers, supplierOrders } from '../db/schema';
 import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
@@ -31,7 +33,12 @@ export class PurchasingService {
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
     private readonly categories: CategoriesService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.tz = config.getOrThrow<string>('TIMEZONE');
+  }
+
+  private readonly tz: string;
 
   listSuppliers() {
     return this.db.select().from(suppliers).orderBy(asc(suppliers.name));
@@ -45,9 +52,8 @@ export class PurchasingService {
   listOrders(query: ListSupplierOrdersQueryDto = {}) {
     const conditions = [
       query.supplierId ? eq(supplierOrders.supplierId, query.supplierId) : undefined,
-      query.from ? gte(supplierOrders.receivedAt, new Date(query.from)) : undefined,
-      query.to ? lte(supplierOrders.receivedAt, new Date(query.to)) : undefined,
       query.paymentMethod ? eq(supplierOrders.paymentMethod, query.paymentMethod) : undefined,
+      ...tsInRange(supplierOrders.receivedAt, toDayRange(query), this.tz),
     ].filter((c) => c !== undefined);
 
     return this.db.query.supplierOrders.findMany({

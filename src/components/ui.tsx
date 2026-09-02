@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Plus, User, X } from 'lucide-react';
+import { BUSINESS_TIMEZONE } from '../lib/timezone';
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
@@ -270,8 +271,17 @@ export function formatCurrency(value: number): string {
   return `EGP ${(value / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
+/** Rendered in the CLINIC's timezone, not the viewer's. Without this a sale at 01:00 Cairo
+ *  on 1 Sept renders as "31 Aug" for a viewer in the Americas while the Cairo-keyed date
+ *  filter correctly counts it in September — a contradiction the range picker makes
+ *  visible on every table it filters. */
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: BUSINESS_TIMEZONE,
+  });
 }
 
 export function formatDateTime(iso: string): string {
@@ -281,5 +291,6 @@ export function formatDateTime(iso: string): string {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: BUSINESS_TIMEZONE,
   });
 }

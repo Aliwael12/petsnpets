@@ -96,7 +96,19 @@ async function main() {
 
   // --- the invariants, on the untouched books -------------------------------------------
   const before = (await get('/analytics/financial-summary', doctor.token)).body;
-  check('summary returns both a month and an all-time window', !!before?.month && !!before?.allTime, Object.keys(before ?? {}));
+  check(
+    'summary returns a range, a month and an all-time window',
+    !!before?.range && !!before?.month && !!before?.allTime,
+    Object.keys(before ?? {}),
+  );
+  // With no from/to the requested window is unbounded, so `range` IS all time — see the
+  // comment on financialSummary(). `month` keeps answering "the current calendar month".
+  check(
+    'with no from/to, range is all time (an unbounded side is unbounded)',
+    before.range.income.gross === before.allTime.income.gross && before.range.net === before.allTime.net,
+    { range: before.range.net, allTime: before.allTime.net },
+  );
+  checkWindow('range (unbounded)', before.range);
   checkWindow('month', before.month);
   checkWindow('all time', before.allTime);
   check(

@@ -2,8 +2,21 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type { PaymentMethod, Refund } from '../types';
 
-export function useRefunds() {
-  return useQuery({ queryKey: ['refunds'], queryFn: () => api.get<Refund[]>('/refunds') });
+export interface RefundFilters {
+  /** Inclusive Cairo calendar days (YYYY-MM-DD) on created_at. */
+  from?: string | null;
+  to?: string | null;
+}
+
+export function useRefunds(filters: RefundFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.from) params.set('from', filters.from);
+  if (filters.to) params.set('to', filters.to);
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ['refunds', filters],
+    queryFn: () => api.get<Refund[]>(`/refunds${qs ? `?${qs}` : ''}`),
+  });
 }
 
 export interface CreateRefundInput {
@@ -22,7 +35,7 @@ export function useCreateRefund() {
       queryClient.invalidateQueries({ queryKey: ['refunds'] });
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics', 'financial-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
   });
 }

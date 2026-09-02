@@ -25,3 +25,7 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Database backups. These hold real client names, phone numbers and the full sales
+# ledger — never commit them, and never push them to a hosted remote.
+backups/

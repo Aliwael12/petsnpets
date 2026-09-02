@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dateRangeShape, isOrderedRange, ORDERED_RANGE_ISSUE } from '../../common/dto/date-range.dto';
 
 export const refundLineSchema = z.object({
   productId: z.uuid(),
@@ -17,3 +18,9 @@ export const createRefundSchema = z.object({
   paymentMethod: paymentMethodSchema.optional(),
 });
 export type CreateRefundDto = z.infer<typeof createRefundSchema>;
+
+/** Inclusive Cairo calendar days on created_at. Omitting both sides means all time. */
+export const listRefundsQuerySchema = z
+  .object({ ...dateRangeShape })
+  .refine(isOrderedRange, ORDERED_RANGE_ISSUE);
+export type ListRefundsQueryDto = z.infer<typeof listRefundsQuerySchema>;

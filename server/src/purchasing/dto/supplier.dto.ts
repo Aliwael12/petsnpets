@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dateRangeShape, isOrderedRange, ORDERED_RANGE_ISSUE } from '../../common/dto/date-range.dto';
 
 export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
 
@@ -50,11 +51,15 @@ export const createSupplierOrderSchema = z
   });
 export type CreateSupplierOrderDto = z.infer<typeof createSupplierOrderSchema>;
 
-export const listSupplierOrdersQuerySchema = z.object({
-  supplierId: z.uuid().optional(),
-  /** Inclusive ISO date bounds on received_at, for the Money in/out custom range filter. */
-  from: z.iso.datetime().optional(),
-  to: z.iso.datetime().optional(),
-  paymentMethod: paymentMethodSchema.optional(),
-});
+export const listSupplierOrdersQuerySchema = z
+  .object({
+    supplierId: z.uuid().optional(),
+    /** Inclusive Cairo calendar days (YYYY-MM-DD) on received_at. Deliberately NOT ISO
+     *  instants: a <input type="date"> cannot know Cairo's offset on a historical date,
+     *  and the previous `lte(receivedAt, new Date(to))` bound resolved to 03:00 Cairo and
+     *  so silently dropped 21 hours of the last day. */
+    ...dateRangeShape,
+    paymentMethod: paymentMethodSchema.optional(),
+  })
+  .refine(isOrderedRange, ORDERED_RANGE_ISSUE);
 export type ListSupplierOrdersQueryDto = z.infer<typeof listSupplierOrdersQuerySchema>;

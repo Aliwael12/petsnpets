@@ -6,7 +6,11 @@ export interface SalesFilters {
   soldBy?: string;
   productId?: string;
   clientId?: string;
+  /** A rolling instant window. The Dashboard's "recent sales" list still uses this. */
   sinceDays?: number;
+  /** Inclusive Cairo calendar days (YYYY-MM-DD) on created_at. */
+  from?: string | null;
+  to?: string | null;
 }
 
 function salesQueryString(filters: SalesFilters): string {
@@ -15,6 +19,8 @@ function salesQueryString(filters: SalesFilters): string {
   if (filters.productId) params.set('productId', filters.productId);
   if (filters.clientId) params.set('clientId', filters.clientId);
   if (filters.sinceDays) params.set('sinceDays', String(filters.sinceDays));
+  if (filters.from) params.set('from', filters.from);
+  if (filters.to) params.set('to', filters.to);
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }
@@ -41,7 +47,10 @@ export function useCheckout() {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics', 'financial-summary'] });
+      // The whole 'analytics' prefix, not just the summary: six of the seven analytics
+      // queries had no invalidation at all, so ringing up a sale left "Best sellers"
+      // stale until a refocus.
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
   });
 }

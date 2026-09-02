@@ -223,9 +223,19 @@ async function main() {
     const res = await req('GET', `/purchasing/supplier-orders?supplierId=${supplier.id}`, doctor.token);
     check('supplier orders can be filtered by supplier', res.status === 200 && res.body.every((o) => o.supplierId === supplier.id), res.body?.length);
 
-    const from = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    // Inclusive Cairo CALENDAR DAYS, not ISO instants — see common/dto/date-range.dto.ts.
+    // The old instant form silently resolved `to` to 03:00 Cairo and dropped 21 hours of
+    // the last day, which is why the contract changed.
+    const dayKey = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(d);
+    const from = dayKey(new Date());
     const recent = await req('GET', `/purchasing/supplier-orders?from=${from}`, doctor.token);
-    check('supplier orders can be filtered by a date range', recent.status === 200 && recent.body.every((o) => new Date(o.receivedAt) >= new Date(from)), recent.body?.length);
+    check(
+      'supplier orders can be filtered by a date range',
+      recent.status === 200 && recent.body.every((o) => dayKey(new Date(o.receivedAt)) >= from),
+      { status: recent.status, count: recent.body?.length },
+    );
+    const bad = await req('GET', '/purchasing/supplier-orders?from=2026-01-01T00:00:00Z', doctor.token);
+    check('an ISO instant is rejected — the range filter takes calendar days', bad.status === 400, bad.status);
   }
 
   // Clean up the shipment fixtures so re-runs start from the same place.

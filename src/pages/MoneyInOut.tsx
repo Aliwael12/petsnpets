@@ -1,13 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useSales } from '../api/sales';
 import { useRefunds } from '../api/refunds';
 import { useCreateSupplierOrder, useSupplierOrders, useSuppliers } from '../api/purchasing';
 import { useCategories, useProducts } from '../api/catalog';
+import { useFinancialSummary, useRevenueTimeseries } from '../api/analytics';
 import { useExpenses } from '../api/expenses';
 import { openRefundInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
-import { businessDayKey, lastBusinessDays } from '../lib/timezone';
+import { businessDayKey, formatRangeLabel } from '../lib/timezone';
+import { useDateRangeStore } from '../store/useDateRangeStore';
+import { DateRangePicker } from '../components/DateRangePicker';
 import {
   Badge,
   Button,
@@ -35,8 +38,6 @@ import {
 import { FileText, Loader2, Plus } from 'lucide-react';
 import { PAYMENT_METHOD_LABELS, EXPENSE_CATEGORY_LABELS, type PaymentMethod } from '../types';
 
-type Range = 'all' | '7' | '30' | 'custom';
-
 const emptyOrderForm = {
   supplierId: '',
   newSupplierName: '',
@@ -55,19 +56,23 @@ const emptyOrderForm = {
 const EXPIRY_WARNING_DAYS = 60;
 
 export function MoneyInOut() {
-  const [range, setRange] = useState<Range>('30');
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
+  // One range, shared with the Dashboard cards and Analytics — see useDateRangeStore.
+  const range = useDateRangeStore((s) => s.range);
+  const setRange = useDateRangeStore((s) => s.setRange);
+  const rangeLabel = formatRangeLabel(range);
+
   const [supplierFilter, setSupplierFilter] = useState('all');
 
-  // A custom range needs the unbounded set so it can be sliced client-side; the preset
-  // ranges still push their window down to the API.
-  const sinceDays = range === '7' || range === '30' ? Number(range) : undefined;
+  // Every list is filtered by the SERVER now, on the same inclusive Cairo day bounds the
+  // summary uses — no client-side date predicate, so a table and the tile above it cannot
+  // disagree about which rows are in the window.
+  const salesQuery = useSales(range);
+  const { data: supplierOrders = [] } = useSupplierOrders(range);
+  const { data: refunds = [] } = useRefunds(range);
+  const { data: expenses = [] } = useExpenses(range);
+  const { data: timeseries = [] } = useRevenueTimeseries(range);
+  const summary = useFinancialSummary(range);
 
-  const { data: sales = [] } = useSales({ sinceDays });
-  const { data: supplierOrders = [] } = useSupplierOrders();
-  const { data: refunds = [] } = useRefunds();
-  const { data: expenses = [] } = useExpenses();
   const { data: suppliers = [] } = useSuppliers();
   const { data: categories = [] } = useCategories();
   const { data: products = [] } = useProducts({ activeOnly: false });
@@ -82,75 +87,26 @@ export function MoneyInOut() {
   const [form, setForm] = useState(emptyOrderForm);
   const [refundPdfPending, setRefundPdfPending] = useState<string | null>(null);
 
-  // One predicate drives every list and the totals, so the stat tiles can never disagree
-  // with the tables underneath them.
-  const inRange = useMemo(() => {
-    if (range === 'custom') {
-      const fromKey = customFrom || null;
-      const toKey = customTo || null;
-      return (iso: string) => {
-        const key = businessDayKey(iso);
-        if (fromKey && key < fromKey) return false;
-        if (toKey && key > toKey) return false;
-        return true;
-      };
-    }
-    if (!sinceDays) return () => true;
-    const cutoff = Date.now() - sinceDays * 24 * 60 * 60 * 1000;
-    return (iso: string) => +new Date(iso) >= cutoff;
-  }, [range, customFrom, customTo, sinceDays]);
+  // The supplier filter is a property of PURCHASES only. It narrows the shipments table and
+  // deliberately leaves the stat tiles alone: "all income minus one supplier's shipments
+  // minus all running costs" is not a fact about anything, and it would make this page and
+  // the dashboard disagree for the same dates.
+  const filteredOrders = supplierOrders.filter((o) => supplierFilter === 'all' || o.supplierId === supplierFilter);
+  const supplierFilterName = suppliers.find((s) => s.id === supplierFilter)?.name;
 
-  const matchesSupplier = (supplierId: string) => supplierFilter === 'all' || supplierId === supplierFilter;
-
-  const filteredSales = sales.filter((t) => inRange(t.createdAt));
-  const filteredOrders = supplierOrders.filter((o) => inRange(o.receivedAt) && matchesSupplier(o.supplierId));
-  const filteredRefunds = refunds.filter((r) => inRange(r.createdAt));
-
-  // paid_on is a bare Cairo calendar day; midday UTC lands on that same day in Cairo
-  // (UTC+2/+3), so it can go through the same range predicate as every instant here.
-  const filteredExpenses = expenses.filter((e) => inRange(`${e.paidOn}T12:00:00Z`));
-
-  // Deliberately the same model as the dashboard's money cards, so the two screens can never
-  // show the owner two different "net" figures:
-  //   income   = sales - refunds   (a refund reduces the sale it came from; it is NOT an
-  //                                 expense — counting it as one subtracts the same money
-  //                                 from net twice)
-  //   expenses = supplier shipments + running costs
-  // A supplier filter is a property of purchases only, so it narrows the shipment side and
-  // deliberately leaves income alone.
-  const grossSales = filteredSales.reduce((sum, t) => sum + t.total, 0);
-  const refundCost = filteredRefunds.reduce((sum, r) => sum + r.total, 0);
-  const income = grossSales - refundCost;
-  const supplierCost = filteredOrders.reduce((sum, o) => sum + o.costTotal, 0);
-  const operatingCost = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
-  const moneyOut = supplierCost + operatingCost;
-  const net = income - moneyOut;
-
-  const chartData = useMemo(() => {
-    const days = range === '7' ? 7 : 30;
-    const keys = lastBusinessDays(days);
-    const byKey = new Map(keys.map((k) => [k, { label: k.slice(5), in: 0, out: 0 }]));
-
-    filteredSales.forEach((t) => {
-      const bucket = byKey.get(businessDayKey(t.createdAt));
-      if (bucket) bucket.in += t.total;
-    });
-    filteredOrders.forEach((o) => {
-      const bucket = byKey.get(businessDayKey(o.receivedAt));
-      if (bucket) bucket.out += o.costTotal;
-    });
-    filteredExpenses.forEach((e) => {
-      const bucket = byKey.get(e.paidOn);
-      if (bucket) bucket.out += e.amount;
-    });
-    // Refunds reduce the day's income rather than adding to what went out — a day can end
-    // up with a negative bar, which is the honest picture of refunding more than you sold.
-    filteredRefunds.forEach((r) => {
-      const bucket = byKey.get(businessDayKey(r.createdAt));
-      if (bucket) bucket.in -= r.total;
-    });
-    return keys.map((k) => byKey.get(k)!);
-  }, [filteredSales, filteredOrders, filteredRefunds, filteredExpenses, range]);
+  // The bars come from the same endpoint the tiles do, so Σ(in) − Σ(out) across the chart
+  // equals the Net tile above it rather than merely resembling it. Bucket width is chosen
+  // server-side from the span, which is why a label may cover a week or a month.
+  // Once the series crosses a year boundary the bare MM-DD labels collide (Jan 2025 and
+  // Jan 2026 draw the same tick), so the year joins them.
+  const spansYears = timeseries.length > 0 && timeseries[0].date.slice(0, 4) !== timeseries[timeseries.length - 1].endDate.slice(0, 4);
+  const tick = (key: string) => (spansYears ? key.slice(2) : key.slice(5));
+  const chartData = timeseries.map((p) => ({
+    label: p.date === p.endDate ? tick(p.date) : `${tick(p.date)}–${tick(p.endDate)}`,
+    in: p.total - p.refunds,
+    out: p.stock + p.operating,
+  }));
+  const xInterval = Math.max(0, Math.floor(chartData.length / 8));
 
   const downloadRefundPdf = async (refundId: string) => {
     setRefundPdfPending(refundId);
@@ -246,73 +202,78 @@ export function MoneyInOut() {
               </option>
             ))}
           </Select>
-          <Select value={range} onChange={(e) => setRange(e.target.value as Range)} className="w-40">
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="all">All time</option>
-            <option value="custom">Custom range…</option>
-          </Select>
           <Button onClick={() => setModalOpen(true)}>
             <Plus size={16} /> Log supplier order
           </Button>
         </div>
       </div>
 
-      {range === 'custom' && (
-        <Card>
-          <div className="flex flex-wrap items-end gap-3 px-5 py-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">From</label>
-              <Input type="date" value={customFrom} max={customTo || undefined} onChange={(e) => setCustomFrom(e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">To</label>
-              <Input type="date" value={customTo} min={customFrom || undefined} onChange={(e) => setCustomTo(e.target.value)} />
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setCustomFrom('');
-                setCustomTo('');
-              }}
-            >
-              Clear
-            </Button>
-            <p className="text-xs text-slate-400">
-              Leave either side empty for an open-ended range. Dates are read in the clinic&apos;s timezone.
-            </p>
-          </div>
-        </Card>
+      <Card>
+        <div className="flex flex-wrap items-end justify-between gap-3 px-5 py-4">
+          <DateRangePicker value={range} onChange={setRange} />
+          <p className="text-sm font-medium text-navy-950">{rangeLabel}</p>
+        </div>
+      </Card>
+
+      {summary.isError ? (
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500">
+          Could not load the money summary right now.
+        </div>
+      ) : !summary.data ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatTile
+            label="Income"
+            value={formatCurrency(summary.data.range.income.net)}
+            tone={summary.data.range.income.net < 0 ? 'warn' : 'income'}
+            hint={
+              summary.data.range.income.net < 0
+                ? 'Refunds exceeded sales in these dates'
+                : // The count comes from /sales and the money from the summary — two
+                  // queries. Falling back to the gross figure rather than printing
+                  // "0 sales" keeps the hint from contradicting the number above it while
+                  // the second request is still in flight (or has failed outright).
+                  salesQuery.data
+                  ? summary.data.range.income.refunds > 0
+                    ? `${salesQuery.data.length} sales − ${formatCurrency(summary.data.range.income.refunds)} refunded`
+                    : `${salesQuery.data.length} sales`
+                  : summary.data.range.income.refunds > 0
+                    ? `${formatCurrency(summary.data.range.income.gross)} sales − ${formatCurrency(summary.data.range.income.refunds)} refunded`
+                    : `${formatCurrency(summary.data.range.income.gross)} in sales`
+            }
+          />
+          <StatTile
+            label="Expenses"
+            value={formatCurrency(summary.data.range.expenses.total)}
+            tone="expense"
+            hint={`${formatCurrency(summary.data.range.expenses.stock)} stock · ${formatCurrency(
+              summary.data.range.expenses.operating,
+            )} running costs`}
+          />
+          <StatTile
+            label="Net"
+            value={formatCurrency(summary.data.range.net)}
+            tone={summary.data.range.net < 0 ? 'warn' : 'gold'}
+            hint="Income minus expenses"
+          />
+        </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatTile
-          label="Income"
-          value={formatCurrency(income)}
-          tone="income"
-          hint={
-            refundCost > 0
-              ? `${filteredSales.length} sales − ${formatCurrency(refundCost)} refunded`
-              : `${filteredSales.length} sales`
-          }
-        />
-        <StatTile
-          label="Expenses"
-          value={formatCurrency(moneyOut)}
-          tone="expense"
-          hint={`${formatCurrency(supplierCost)} stock · ${formatCurrency(operatingCost)} running costs`}
-        />
-        <StatTile label="Net" value={formatCurrency(net)} tone={net < 0 ? 'warn' : 'gold'} hint="Income minus expenses" />
-      </div>
-
-      {range !== 'custom' && (
-        <Card>
-          <CardHeader title="Cash flow" subtitle="Daily income (after refunds) vs. what went out" />
+      <Card>
+        <CardHeader title="Cash flow" subtitle={`Income (after refunds) vs. what went out · ${rangeLabel}`} />
+        {chartData.length === 0 ? (
+          <EmptyState title="Nothing recorded in these dates" subtitle="Widen the dates to see the trend" />
+        ) : (
           <div className="h-72 px-3 py-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ left: 8, right: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eef0f6" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={range === '7' ? 0 : 4} stroke="#94a3b8" />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={xInterval} stroke="#94a3b8" />
                 <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `${v / 100000}k`} />
                 <Tooltip formatter={(v) => formatCurrency(Number(v))} />
                 <Legend />
@@ -321,16 +282,20 @@ export function MoneyInOut() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
 
       <Card>
         <CardHeader
           title="Supplier order history"
-          subtitle={supplierFilter === 'all' ? undefined : suppliers.find((s) => s.id === supplierFilter)?.name}
+          subtitle={
+            supplierFilterName
+              ? `${supplierFilterName} · ${formatCurrency(filteredOrders.reduce((sum, o) => sum + o.costTotal, 0))} in these dates`
+              : rangeLabel
+          }
         />
         {filteredOrders.length === 0 ? (
-          <EmptyState title="No supplier orders match these filters" />
+          <EmptyState title="No supplier orders in these dates" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -399,8 +364,8 @@ export function MoneyInOut() {
           title="Running costs"
           subtitle="Rent, salaries, utilities and the rest — recorded on the Expenses tab, counted here"
         />
-        {filteredExpenses.length === 0 ? (
-          <EmptyState title="No running costs in this range" subtitle="Record them from the Expenses tab" />
+        {expenses.length === 0 ? (
+          <EmptyState title="No running costs in these dates" subtitle="Record them from the Expenses tab" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -414,7 +379,7 @@ export function MoneyInOut() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredExpenses
+                {expenses
                   .slice()
                   .sort((a, b) => (a.paidOn < b.paidOn ? 1 : -1))
                   .map((e) => (
@@ -441,8 +406,8 @@ export function MoneyInOut() {
 
       <Card>
         <CardHeader title="Refund history" />
-        {filteredRefunds.length === 0 ? (
-          <EmptyState title="No refunds in this range" />
+        {refunds.length === 0 ? (
+          <EmptyState title="No refunds in these dates" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -457,7 +422,7 @@ export function MoneyInOut() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRefunds
+                {refunds
                   .slice()
                   .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
                   .map((r) => (

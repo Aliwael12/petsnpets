@@ -1,0 +1,1 @@
+CREATE INDEX "refunds_created_at_idx" ON "refunds" USING btree ("created_at");

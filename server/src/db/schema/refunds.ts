@@ -26,6 +26,9 @@ export const refunds = pgTable(
   (table) => [
     index('refunds_transaction_id_idx').on(table.transactionId),
     index('refunds_refunded_by_idx').on(table.refundedBy),
+    // Range-scanned by financialSummary, the revenue timeseries and GET /refunds.
+    // Previously the only money stream with no date index at all.
+    index('refunds_created_at_idx').on(table.createdAt),
   ],
 );
 

@@ -248,9 +248,22 @@ export interface ActivityEntry {
   at: string;
 }
 
+/** Both bounds inclusive, YYYY-MM-DD, read as Cairo calendar days. null = open-ended. */
+export interface DayRange {
+  from: string | null;
+  to: string | null;
+}
+
 export interface RevenueTimeseriesPoint {
+  /** First Cairo day in the bucket. */
   date: string;
-  total: number; // piastres
+  /** Last Cairo day in the bucket — equal to `date` for daily buckets, later for the
+   *  weekly and monthly buckets a long range collapses into. */
+  endDate: string;
+  total: number; // gross sales, piastres
+  refunds: number;
+  stock: number; // supplier shipments
+  operating: number; // running costs
 }
 
 export interface BestSeller {
@@ -277,8 +290,11 @@ export interface RevenueSplit {
 }
 
 export interface EmployeeSummary {
-  year: number;
-  month: number;
+  from: string | null;
+  to: string | null;
+  /** Present only when the window is exactly a calendar month. */
+  year?: number;
+  month?: number;
   stats: {
     sales: { count: number; revenue: number };
     refunds: { count: number; amount: number };
@@ -339,12 +355,18 @@ export type MethodBreakdown = Record<PaymentBucket, number>;
 export interface FinancialWindow {
   year?: number;
   month?: number;
+  from?: string | null;
+  to?: string | null;
   income: { gross: number; refunds: number; net: number; byMethod: MethodBreakdown };
   expenses: { stock: number; operating: number; total: number; byMethod: MethodBreakdown };
   net: number;
 }
 
 export interface FinancialSummary {
+  /** The window the caller asked for. */
+  range: FinancialWindow;
+  /** A whole calendar month. */
   month: FinancialWindow;
+  /** Never range-filtered. */
   allTime: FinancialWindow;
 }

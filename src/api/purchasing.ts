@@ -16,9 +16,9 @@ export function useCreateSupplier() {
 
 export interface SupplierOrderFilters {
   supplierId?: string;
-  /** ISO instants — inclusive bounds on when the shipment was received. */
-  from?: string;
-  to?: string;
+  /** Inclusive Cairo calendar days (YYYY-MM-DD) on received_at. */
+  from?: string | null;
+  to?: string | null;
   paymentMethod?: PaymentMethod;
 }
 
@@ -61,7 +61,7 @@ export function useCreateSupplierOrder() {
       queryClient.invalidateQueries({ queryKey: ['supplier-orders'] });
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics', 'financial-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
   });
 }

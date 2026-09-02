@@ -4,8 +4,8 @@ import type { Expense, ExpenseCategory, PaymentMethod } from '../types';
 
 export interface ExpenseFilters {
   /** YYYY-MM-DD, inclusive, matched against paidOn. */
-  from?: string;
-  to?: string;
+  from?: string | null;
+  to?: string | null;
   category?: ExpenseCategory;
   paymentMethod?: PaymentMethod;
 }
@@ -45,7 +45,7 @@ function useExpenseMutation<TInput>(fn: (input: TInput) => Promise<Expense>) {
     mutationFn: fn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics', 'financial-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
   });
 }

@@ -9,6 +9,9 @@ import {
   useRevenueTimeseries,
 } from '../api/analytics';
 import { ActivityFeed } from '../components/ActivityFeed';
+import { DateRangePicker } from '../components/DateRangePicker';
+import { useDateRangeStore } from '../store/useDateRangeStore';
+import { formatRangeLabel } from '../lib/timezone';
 import { Card, CardHeader, Select, StatTile, TabSwitch, formatCurrency } from '../components/ui';
 import {
   Bar,
@@ -28,15 +31,20 @@ import {
 
 const PALETTE = ['#0a1238', '#f0c419', '#3d5ac2', '#fbe388', '#16276b', '#d9a800'];
 
-const monthNames = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
-function dayLabel(isoDate: string): string {
-  const [, , day] = isoDate.split('-');
-  const monthShort = new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
-  return `${day} ${monthShort}`;
+/**
+ * A bucket's axis label. `timeZone: 'UTC'` is deliberate — the key is ALREADY a Cairo day
+ * key computed by the server, so re-interpreting it in Cairo would shift it a day. A bucket
+ * covering more than one day (which is what a long range collapses into) names both ends,
+ * and once the series crosses a year boundary every label carries its year — otherwise
+ * January 2025 and January 2026 draw identical labels on the same axis.
+ */
+function bucketLabel(date: string, endDate: string, withYear: boolean): string {
+  const one = (key: string) => {
+    const [, , day] = key.split('-');
+    const monthShort = new Date(`${key}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
+    return `${day} ${monthShort}${withYear ? ` ${key.slice(2, 4)}` : ''}`;
+  };
+  return date === endDate ? one(date) : `${one(date)}–${one(endDate)}`;
 }
 
 function shortEmployeeName(name: string): string {
@@ -49,35 +57,44 @@ export function Analytics() {
   const [revenueView, setRevenueView] = useState<'service' | 'shop'>('service');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
 
+  // One range for every card on the page — a single card quietly on a different clock is
+  // exactly the defect a shared picker exists to remove.
+  const range = useDateRangeStore((s) => s.range);
+  const setRange = useDateRangeStore((s) => s.setRange);
+  const rangeLabel = formatRangeLabel(range);
+
   const employeeId = selectedEmployeeId || employees[0]?.id || '';
 
-  const { data: timeseries = [] } = useRevenueTimeseries(30);
-  const { data: bestSellers = [] } = useBestSellers();
-  const { data: revenueByEmployeeRaw = [] } = useRevenueByEmployee();
-  const { data: revenueByCategoryRaw = [] } = useRevenueByCategory();
-  const { data: revenueSplit } = useRevenueSplit(revenueView);
-  const { data: employeeSummary } = useEmployeeSummary(employeeId || null);
+  const { data: timeseries = [] } = useRevenueTimeseries(range);
+  const { data: bestSellers = [] } = useBestSellers(range);
+  const { data: revenueByEmployeeRaw = [] } = useRevenueByEmployee(range);
+  const { data: revenueByCategoryRaw = [] } = useRevenueByCategory(range);
+  const { data: revenueSplit } = useRevenueSplit(revenueView, range);
+  const { data: employeeSummary } = useEmployeeSummary(employeeId || null, range);
 
-  const incomeOverTime = timeseries.map((d) => ({ label: dayLabel(d.date), total: d.total }));
+  const spansYears = timeseries.length > 0 && timeseries[0].date.slice(0, 4) !== timeseries[timeseries.length - 1].endDate.slice(0, 4);
+  const incomeOverTime = timeseries.map((d) => ({ label: bucketLabel(d.date, d.endDate, spansYears), total: d.total }));
+  const xInterval = Math.max(0, Math.floor(incomeOverTime.length / 8));
   const revenueByEmployee = revenueByEmployeeRaw.map((e) => ({ name: shortEmployeeName(e.name), revenue: e.revenue }));
   const revenueByCategory = revenueByCategoryRaw.map((c) => ({ name: c.category, value: c.value }));
 
-  const monthLabel = employeeSummary ? `${monthNames[employeeSummary.month - 1]} ${employeeSummary.year}` : '';
-
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-semibold text-navy-950">Analytics</h1>
-        <p className="text-sm text-slate-500">Insights generated from all recorded transactions</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-navy-950">Analytics</h1>
+          <p className="text-sm text-slate-500">Insights from every transaction in the selected dates</p>
+        </div>
+        <DateRangePicker value={range} onChange={setRange} size="compact" />
       </div>
 
       <Card>
-        <CardHeader title="Income over time" subtitle="Last 30 days" />
+        <CardHeader title="Income over time" subtitle={rangeLabel} />
         <div className="h-72 px-3 py-4">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={incomeOverTime} margin={{ left: 8, right: 16 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eef0f6" />
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={4} stroke="#94a3b8" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={xInterval} stroke="#94a3b8" />
               <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `${v / 100000}k`} />
               <Tooltip formatter={(v) => formatCurrency(Number(v))} />
               <Line type="monotone" dataKey="total" name="Revenue" stroke="#101c4d" strokeWidth={2} dot={false} />
@@ -89,7 +106,7 @@ export function Analytics() {
       <Card>
         <CardHeader
           title="Revenue by service"
-          subtitle="Clinic services vs. pet shop products — all time"
+          subtitle={`Clinic services vs. pet shop products — ${rangeLabel}`}
           action={
             <TabSwitch
               value={revenueView}
@@ -110,7 +127,7 @@ export function Analytics() {
           />
           <div className="h-56">
             {!revenueSplit || revenueSplit.items.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-sm text-slate-400">No sales in this bucket yet</div>
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">No sales in this bucket for these dates</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={revenueSplit.items} layout="vertical" margin={{ left: 24, right: 16 }}>
@@ -128,7 +145,7 @@ export function Analytics() {
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Card>
-          <CardHeader title="Best sellers" subtitle="By revenue" />
+          <CardHeader title="Best sellers" subtitle={`By revenue · ${rangeLabel}`} />
           <div className="h-80 px-3 py-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={bestSellers} layout="vertical" margin={{ left: 24, right: 16 }}>
@@ -143,7 +160,7 @@ export function Analytics() {
         </Card>
 
         <Card>
-          <CardHeader title="Revenue by employee" />
+          <CardHeader title="Revenue by employee" subtitle={rangeLabel} />
           <div className="h-80 px-3 py-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={revenueByEmployee} margin={{ left: 8, right: 16 }}>
@@ -159,7 +176,7 @@ export function Analytics() {
       </div>
 
       <Card>
-        <CardHeader title="Revenue by category" />
+        <CardHeader title="Revenue by category" subtitle={rangeLabel} />
         <div className="h-80 px-3 py-4">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
@@ -178,7 +195,7 @@ export function Analytics() {
       <Card>
         <CardHeader
           title="Employee summary"
-          subtitle={monthLabel ? `Everything this employee did in ${monthLabel}` : undefined}
+          subtitle={`Most recent activity · ${rangeLabel}`}
           action={
             <Select value={employeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} className="w-52">
               {employees.map((e) => (
@@ -198,7 +215,7 @@ export function Analytics() {
             <StatTile label="Discounts created" value={String(employeeSummary.stats.discounts.count)} />
           </div>
         )}
-        <ActivityFeed entries={employeeSummary?.activity ?? []} employees={employees} emptyTitle="No activity this month" />
+        <ActivityFeed entries={employeeSummary?.activity ?? []} employees={employees} emptyTitle="No activity in these dates" />
       </Card>
     </div>
   );
