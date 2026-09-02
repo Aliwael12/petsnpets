@@ -3,7 +3,7 @@ import { employees } from './employees';
 import { clients, clientPhones } from './clients';
 import { pets, petPhones } from './pets';
 import { petLogs } from './pet-logs';
-import { products } from './catalog';
+import { products, productCategories } from './catalog';
 import { suppliers } from './suppliers';
 import { supplierOrders } from './supplier-orders';
 import { stockMovements } from './stock-movements';
@@ -50,7 +50,11 @@ export const petLogsRelations = relations(petLogs, ({ one }) => ({
   }),
 }));
 
-export const productsRelations = relations(products, ({ many }) => ({
+export const productsRelations = relations(products, ({ one, many }) => ({
+  categoryRow: one(productCategories, {
+    fields: [products.category],
+    references: [productCategories.name],
+  }),
   stockMovements: many(stockMovements),
   supplierOrders: many(supplierOrders),
   transactionItems: many(transactionItems),
@@ -127,4 +131,8 @@ export const appointmentsRelations = relations(appointments, ({ one }) => ({
     fields: [appointments.handledBy],
     references: [employees.id],
   }),
+}));
+
+export const productCategoriesRelations = relations(productCategories, ({ many }) => ({
+  products: many(products),
 }));

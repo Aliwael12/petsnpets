@@ -14,6 +14,17 @@ export const DEV_EMAIL_DOMAIN = 'petsandpets.local';
 export const DEV_PASSWORD = 'Password123!';
 export const DEV_PIN = '1234';
 
+/** Seeded product categories. `service` is flagged isSystem because the app's own logic
+ * keys off a kind='service' category (products in it bypass the stock ledger entirely),
+ * so it must not be deletable from Settings. */
+export const seedCategories = [
+  { name: 'food', label: 'Food', kind: 'good' as const, isSystem: false, sortOrder: 10 },
+  { name: 'accessories', label: 'Accessories', kind: 'good' as const, isSystem: false, sortOrder: 20 },
+  { name: 'medicine', label: 'Medicine', kind: 'good' as const, isSystem: false, sortOrder: 30 },
+  { name: 'grooming', label: 'Grooming', kind: 'good' as const, isSystem: false, sortOrder: 40 },
+  { name: 'service', label: 'Clinic service', kind: 'service' as const, isSystem: true, sortOrder: 50 },
+];
+
 export const seedProducts = [
   { slug: 'prod-1', name: 'Royal Canin Adult Cat Food 2kg', category: 'food', kind: 'good', sku: 'RC-CAT-2KG', unitPrice: 85000, openingStock: 30, lowStockThreshold: 5 },
   { slug: 'prod-2', name: 'Royal Canin Puppy Food 3kg', category: 'food', kind: 'good', sku: 'RC-PUP-3KG', unitPrice: 110000, openingStock: 15, lowStockThreshold: 5 },

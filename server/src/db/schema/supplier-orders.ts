@@ -16,6 +16,10 @@ export const supplierOrders = pgTable(
       .references(() => products.id, { onDelete: 'restrict' }),
     quantity: integer('quantity').notNull(),
     costTotal: bigint('cost_total', { mode: 'number' }).notNull(),
+    /** Expiry of the received batch, where the goods have one (medicine, food). Tracked on
+     * the shipment rather than the product because two batches of the same product can
+     * expire on different dates. */
+    expiryDate: timestamp('expiry_date', { withTimezone: true }),
     loggedBy: uuid('logged_by')
       .notNull()
       .references(() => employees.id, { onDelete: 'restrict' }),

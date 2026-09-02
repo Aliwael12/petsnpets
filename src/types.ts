@@ -13,12 +13,29 @@ export interface Employee {
   createdAt?: string;
 }
 
-export type ProductCategory = 'food' | 'accessories' | 'medicine' | 'grooming' | 'service';
+/** Categories are managed rows now (Settings → Categories), not a fixed union — this is
+ * the category's `name`, the value stored on the product. */
+export type ProductCategory = string;
 export type ProductKind = 'good' | 'service';
+
+export interface Category {
+  id: string;
+  name: string;
+  label: string;
+  kind: ProductKind;
+  active: boolean;
+  isSystem: boolean;
+  sortOrder: number;
+  createdAt: string;
+  /** How many products reference this category — the API sends it so the UI can explain
+   * why a category can't be deleted without a second request. */
+  productCount: number;
+}
 
 export interface Product {
   id: string;
   name: string;
+  brand?: string | null;
   category: ProductCategory;
   kind: ProductKind;
   sku: string;
@@ -132,8 +149,9 @@ export interface SupplierOrder {
   costTotal: number; // piastres
   loggedBy: string;
   receivedAt: string;
+  expiryDate?: string | null;
   supplier?: { id: string; name: string };
-  product?: { id: string; name: string };
+  product?: { id: string; name: string; brand?: string | null; category?: string };
   loggedByEmployee?: { id: string; name: string };
 }
 

@@ -10,6 +10,7 @@ import {
   DEV_EMAIL_DOMAIN,
   DEV_PASSWORD,
   DEV_PIN,
+  seedCategories,
   seedClients,
   seedEmployees,
   seedPetLogs,
@@ -45,6 +46,28 @@ async function main() {
 
   console.log('== Elite Blue seed ==');
 
+  // --- Safety: never wipe a database that isn't a local sandbox ------------
+  // This script TRUNCATEs every application table. That's fine against the local Supabase
+  // stack, and catastrophic against a hosted project holding real clinic data — and
+  // server/.env can legitimately point at either. Refuse anything that isn't clearly local
+  // unless the caller has explicitly said otherwise.
+  {
+    const host = new URL(databaseUrl).hostname;
+    const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    if (!isLocal && process.env.ALLOW_REMOTE_SEED !== 'yes') {
+      throw new Error(
+        [
+          `Refusing to seed: DATABASE_URL points at "${host}", which is not a local database.`,
+          'This script truncates every application table and would destroy real data.',
+          'If you are certain, re-run with ALLOW_REMOTE_SEED=yes.',
+        ].join('\n'),
+      );
+    }
+    if (!isLocal) {
+      console.warn(`  !! ALLOW_REMOTE_SEED=yes — wiping and reseeding REMOTE database at ${host}`);
+    }
+  }
+
   // --- 0. Storage bucket ---------------------------------------------------
   // The declarative [storage.buckets.invoices] entry in supabase/config.toml does not
   // reliably provision the bucket on `supabase start` in this CLI version, so create it
@@ -70,7 +93,7 @@ async function main() {
       appointments,
       pet_logs, pet_phones, pets,
       client_phones, clients,
-      products, suppliers, invoice_counters,
+      products, product_categories, suppliers, invoice_counters,
       employees
     restart identity cascade
   `);
@@ -118,6 +141,9 @@ async function main() {
   console.log(`  ${employeeIdBySlug.size} employees (login: <slug>@${DEV_EMAIL_DOMAIN} / ${DEV_PASSWORD}, PIN ${DEV_PIN})`);
 
   // --- 3. Products (opening stock recorded as a real ledger movement) ---
+  console.log('Creating product categories...');
+  await db.insert(schema.productCategories).values(seedCategories);
+
   console.log('Creating products...');
   const productIdBySlug = new Map<string, string>();
   const currentStock = new Map<string, number>(); // productId -> running quantity

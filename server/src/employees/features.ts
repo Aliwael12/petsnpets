@@ -14,6 +14,7 @@ export const ALL_FEATURES = [
   '/employees',
   '/analytics',
   '/money',
+  '/settings',
 ] as const;
 
 export type Feature = (typeof ALL_FEATURES)[number];
@@ -23,6 +24,9 @@ export type Feature = (typeof ALL_FEATURES)[number];
  * from there via PATCH /employees/:id/features. */
 export const DEFAULT_FEATURES_BY_ROLE: Record<Role, Feature[]> = {
   doctor: [...ALL_FEATURES],
-  nurse: ['/products', '/pos', '/transactions', '/clients', '/pet-logs', '/calendar', '/price-checker'],
-  cashier: ['/products', '/pos', '/transactions', '/price-checker'],
+  // Settings is available to everyone by default: its always-available half is
+  // "change my own PIN", which every operator needs. The category-management half inside
+  // it is separately gated to doctors by the API regardless of this flag.
+  nurse: ['/products', '/pos', '/transactions', '/clients', '/pet-logs', '/calendar', '/price-checker', '/settings'],
+  cashier: ['/products', '/pos', '/transactions', '/price-checker', '/settings'],
 };

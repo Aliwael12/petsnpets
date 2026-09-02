@@ -3,13 +3,9 @@ import { pgEnum } from 'drizzle-orm/pg-core';
 export const roleEnum = pgEnum('role', ['doctor', 'nurse', 'cashier']);
 export type Role = (typeof roleEnum.enumValues)[number];
 
-export const productCategoryEnum = pgEnum('product_category', [
-  'food',
-  'accessories',
-  'medicine',
-  'grooming',
-  'service',
-]);
+// NOTE: product categories used to be a pgEnum here. They are now rows in the
+// product_categories table (see catalog.ts) so they can be managed from Settings —
+// products.category is a text FK onto product_categories.name.
 
 export const productKindEnum = pgEnum('product_kind', ['good', 'service']);
 

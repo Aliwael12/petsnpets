@@ -8,8 +8,10 @@ import type { Actor } from '../auth/auth.types';
 import {
   createEmployeeSchema,
   updateEmployeeFeaturesSchema,
+  updateEmployeeRoleSchema,
   type CreateEmployeeDto,
   type UpdateEmployeeFeaturesDto,
+  type UpdateEmployeeRoleDto,
 } from './dto/employee.dto';
 
 @Controller('employees')
@@ -39,6 +41,16 @@ export class EmployeesController {
   @Roles('doctor')
   toggleActive(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.employees.toggleActive(id, actor);
+  }
+
+  @Patch(':id/role')
+  @Roles('doctor')
+  updateRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(updateEmployeeRoleSchema)) dto: UpdateEmployeeRoleDto,
+    @CurrentActor() actor: Actor,
+  ) {
+    return this.employees.updateRole(id, dto, actor);
   }
 
   @Patch(':id/features')

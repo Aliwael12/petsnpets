@@ -66,7 +66,7 @@ Studio at `http://localhost:55323`).
 |---|---|
 | `npm run start:dev`       | API in watch mode |
 | `npm run seed`            | Wipes and reseeds all application data (safe — local only) |
-| `npm run verify:all`      | Reseeds, then runs all 100 integration tests against the running API |
+| `npm run verify:all`      | Reseeds, then runs all 146 integration tests against the running API |
 | `npm run db:generate`     | Generates a Drizzle migration from schema changes |
 | `npm run db:sync`         | Copies a generated migration into `supabase/migrations/` |
 | `npm run db:migrate`      | `db:generate` + `db:sync` in one step |
@@ -74,7 +74,7 @@ Studio at `http://localhost:55323`).
 | `npm run db:studio`       | Drizzle Studio — browse/edit data visually |
 
 `npm run verify:all` (from `server/`) is the fastest way to confirm a from-scratch checkout
-actually works — it seeds fresh data and then runs the phase 3–7 test suites described in
+actually works — it seeds fresh data and then runs the phase 3–8 test suites described in
 `server/scripts/`. Phase 1 (schema/migrations) and phase 2 (auth) are exercised as part of
 every other suite implicitly, since nothing else can run without them.
 
@@ -120,6 +120,35 @@ being paranoid about:
   distributed flood — anything internet-facing wants that at the edge instead.
 - The public reads (`services`, `opening-hours`, `availability`) deliberately project only
   name/price/time — never stock levels, cost, SKUs or client data.
+
+## Product categories are data, not an enum
+
+Categories live in `product_categories` and are managed from **Settings → Categories**
+(doctors only). `products.category` is a text FK onto `product_categories.name`, with
+`ON UPDATE CASCADE` / `ON DELETE RESTRICT`, so:
+
+- Renaming a category's **display label** never touches product rows — `name` is the stable
+  key and is deliberately immutable, which is also why analytics can keep grouping by it.
+- A category in use **cannot be deleted** (the FK enforces it; the API checks first only so
+  the error can name the count). Deactivate it instead — that hides it from the "new product"
+  pickers while leaving existing products and their history intact.
+- A category's `kind` (`good` vs `service`) is what makes it structural: products in a
+  `service` category bypass the stock ledger entirely. `kind` is derived from the category,
+  never client-supplied, and the built-in `service` category is flagged `isSystem` so it
+  can't be deleted out from under that behaviour.
+
+## Guardrails worth knowing about
+
+- **`npm run seed` refuses to run against a non-local database.** It TRUNCATEs every table,
+  and `server/.env` can legitimately point at a hosted project. Override deliberately with
+  `ALLOW_REMOTE_SEED=yes` if you really mean it.
+- **A doctor cannot change their own role or deactivate their own account.** Both would take
+  effect on the next request (the auth guard rejects inactive employees) and, for the last
+  active doctor, would leave nobody able to administer the system.
+- **Adding a tab to `ALL_FEATURES` needs a data backfill.** `employees.enabled_features` is a
+  per-employee snapshot taken at creation time, not derived at read time, so existing staff
+  won't see a newly added tab until it's appended to their stored list — see
+  `supabase/migrations/*_grant_settings_feature.sql` for the pattern.
 
 ## Deploying to Vercel
 

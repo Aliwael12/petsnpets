@@ -21,6 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/employees', label: 'Employees', defaultRoles: ['doctor'] },
   { path: '/analytics', label: 'Analytics', defaultRoles: ['doctor'] },
   { path: '/money', label: 'Money In / Out', defaultRoles: ['doctor'] },
+  { path: '/settings', label: 'Settings', defaultRoles: ['doctor', 'nurse', 'cashier'] },
 ];
 
 /** Tabs a doctor can individually enable/disable per employee from the Employees tab.

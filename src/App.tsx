@@ -17,6 +17,7 @@ import { PriceChecker } from './pages/PriceChecker';
 import { Employees } from './pages/Employees';
 import { Analytics } from './pages/Analytics';
 import { MoneyInOut } from './pages/MoneyInOut';
+import { Settings } from './pages/Settings';
 
 function App() {
   const employee = useAuthStore((s) => s.employee);
@@ -123,6 +124,14 @@ function App() {
               element={
                 <RoleGuard path="/money">
                   <MoneyInOut />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <RoleGuard path="/settings">
+                  <Settings />
                 </RoleGuard>
               }
             />

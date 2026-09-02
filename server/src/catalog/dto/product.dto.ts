@@ -1,31 +1,27 @@
 import { z } from 'zod';
 
-export const productCategorySchema = z.enum(['food', 'accessories', 'medicine', 'grooming', 'service']);
+// Categories are rows in product_categories now, not a fixed enum, so this is just a
+// well-formed-slug check — whether the category actually exists (and is still active) is
+// resolved against the database in ProductsService, which also takes `kind` from it.
+export const categoryNameSchema = z.string().trim().min(2).max(40);
 export const productKindSchema = z.enum(['good', 'service']);
 
-export const createProductSchema = z
-  .object({
-    name: z.string().trim().min(1).max(200),
-    category: productCategorySchema,
-    sku: z.string().trim().min(1).max(60),
-    unitPrice: z.number().int().nonnegative(), // piastres
-    stockQuantity: z.number().int().nonnegative().default(0),
-    lowStockThreshold: z.number().int().nonnegative().default(0),
-  })
-  .transform((v) => ({
-    ...v,
-    // Services are structurally unlimited — the kind is derived, not client-supplied,
-    // so nothing can (mis)represent a physical good as unlimited stock by request shape.
-    kind: (v.category === 'service' ? 'service' : 'good') as 'service' | 'good',
-    stockQuantity: v.category === 'service' ? 0 : v.stockQuantity,
-    lowStockThreshold: v.category === 'service' ? 0 : v.lowStockThreshold,
-  }));
+export const createProductSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  brand: z.string().trim().max(120).optional(),
+  category: categoryNameSchema,
+  sku: z.string().trim().min(1).max(60),
+  unitPrice: z.number().int().nonnegative(), // piastres
+  stockQuantity: z.number().int().nonnegative().default(0),
+  lowStockThreshold: z.number().int().nonnegative().default(0),
+});
 
 export type CreateProductDto = z.infer<typeof createProductSchema>;
 
 export const updateProductSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
-  category: productCategorySchema.optional(),
+  brand: z.string().trim().max(120).optional(),
+  category: categoryNameSchema.optional(),
   sku: z.string().trim().min(1).max(60).optional(),
   unitPrice: z.number().int().nonnegative().optional(),
   lowStockThreshold: z.number().int().nonnegative().optional(),
@@ -35,7 +31,7 @@ export const updateProductSchema = z.object({
 export type UpdateProductDto = z.infer<typeof updateProductSchema>;
 
 export const listProductsQuerySchema = z.object({
-  category: productCategorySchema.optional(),
+  category: categoryNameSchema.optional(),
   search: z.string().trim().max(200).optional(),
   activeOnly: z.coerce.boolean().default(true),
 });

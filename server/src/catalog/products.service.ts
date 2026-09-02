@@ -6,6 +6,7 @@ import { products } from '../db/schema';
 import { NotFoundAppError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { CategoriesService } from './categories.service';
 import type { Actor } from '../auth/auth.types';
 import type { CreateProductDto, ListProductsQueryDto, UpdateProductDto } from './dto/product.dto';
 
@@ -15,6 +16,7 @@ export class ProductsService {
     @Inject(DB) private readonly db: Database,
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
+    private readonly categories: CategoriesService,
   ) {}
 
   async list(query: ListProductsQueryDto) {
@@ -52,13 +54,27 @@ export class ProductsService {
   }
 
   async create(dto: CreateProductDto, actor: Actor) {
+    // Derived from the category, never client-supplied: a product in a kind='service'
+    // category is structurally unlimited, so nothing can (mis)represent a physical good as
+    // unlimited stock by request shape.
+    const category = await this.categories.resolveActiveOrThrow(dto.category);
+    const kind = category.kind;
+
     return this.db.transaction(async (tx) => {
       // Insert with zero stock, then move any opening balance through InventoryService —
       // the same discipline as the seed script's "opening balance" movements — so a
       // freshly created product with initial stock never starts life already desynced
       // from its own ledger.
-      const openingStock = dto.stockQuantity;
-      const [row] = await tx.insert(products).values({ ...dto, stockQuantity: 0 }).returning();
+      const openingStock = kind === 'service' ? 0 : dto.stockQuantity;
+      const [row] = await tx
+        .insert(products)
+        .values({
+          ...dto,
+          kind,
+          stockQuantity: 0,
+          lowStockThreshold: kind === 'service' ? 0 : dto.lowStockThreshold,
+        })
+        .returning();
 
       if (openingStock > 0) {
         await this.inventory.applyMovement(tx, {
@@ -87,13 +103,15 @@ export class ProductsService {
       const [before] = await tx.select().from(products).where(eq(products.id, id)).limit(1);
       if (!before) throw new NotFoundAppError('Product', id);
 
-      // If category flips to/from 'service', kind and the stock fields must follow — matches
-      // createProductSchema's derivation so a product can never end up category='service'
-      // with kind='good' (or vice versa) via an edit. Zeroing stock on that transition goes
-      // through InventoryService so the drop is a real ledger movement, not a silent write
-      // to the cache that would desync it from stock_movements.
-      const nextCategory = dto.category ?? before.category;
-      const becomingService = nextCategory === 'service' && before.kind !== 'service';
+      // If the category changes, `kind` must follow it — a product can never end up in a
+      // service category while still flagged as a stocked good (or vice versa). Zeroing
+      // stock on that transition goes through InventoryService so the drop is a real ledger
+      // movement, not a silent write to the cache that would desync it from stock_movements.
+      const nextKind =
+        dto.category && dto.category !== before.category
+          ? (await this.categories.resolveActiveOrThrow(dto.category)).kind
+          : before.kind;
+      const becomingService = nextKind === 'service' && before.kind !== 'service';
       if (becomingService && before.stockQuantity !== 0) {
         await this.inventory.applyMovement(tx, {
           productId: id,
@@ -105,7 +123,7 @@ export class ProductsService {
       }
       const patch = {
         ...dto,
-        kind: (becomingService ? 'service' : before.kind) as 'service' | 'good',
+        kind: nextKind,
         ...(becomingService ? { lowStockThreshold: 0 } : {}),
       };
 

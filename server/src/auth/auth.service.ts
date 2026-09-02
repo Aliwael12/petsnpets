@@ -9,6 +9,7 @@ import { employees, operatorSessions } from '../db/schema';
 import { InvalidPinError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
 import type { PinLoginDto } from './dto/pin-login.dto';
+import type { ChangePinDto } from './dto/change-pin.dto';
 import type { Actor } from './auth.types';
 
 export interface PinLoginResult {
@@ -64,6 +65,31 @@ export class AuthService {
       expiresAt: expiresAt.toISOString(),
       employee: { id: employee.id, name: employee.name, role: employee.role, enabledFeatures: employee.enabledFeatures },
     };
+  }
+
+  /**
+   * Self-service PIN change. Deliberately re-verifies the current PIN even though the
+   * request already carries a valid session token: a token proves "this terminal was
+   * unlocked at some point", not "the person typing right now is the account holder", and
+   * a shared POS terminal makes that distinction real.
+   */
+  async changePin(actorId: string, dto: ChangePinDto): Promise<void> {
+    const [employee] = await this.db.select().from(employees).where(eq(employees.id, actorId)).limit(1);
+    if (!employee || !employee.pinHash) throw new InvalidPinError();
+
+    const valid = await argon2.verify(employee.pinHash, dto.currentPin);
+    if (!valid) throw new InvalidPinError();
+
+    const pinHash = await argon2.hash(dto.newPin);
+    await this.db.update(employees).set({ pinHash }).where(eq(employees.id, actorId));
+
+    // The PIN itself is never logged, only that it changed and by whom.
+    await this.audit.logDirect({
+      actorId,
+      action: 'operator.pin_change',
+      entityType: 'employee',
+      entityId: actorId,
+    });
   }
 
   async logout(sessionId: string): Promise<void> {

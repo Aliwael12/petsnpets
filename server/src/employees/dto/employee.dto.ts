@@ -10,6 +10,14 @@ export const createEmployeeSchema = z.object({
 });
 export type CreateEmployeeDto = z.infer<typeof createEmployeeSchema>;
 
+export const updateEmployeeRoleSchema = z.object({
+  role: roleSchema,
+  /** When true, the employee's enabled tabs are reset to the new role's defaults. Off by
+   * default so a deliberately customised tab set survives a role correction. */
+  resetFeatures: z.boolean().default(false),
+});
+export type UpdateEmployeeRoleDto = z.infer<typeof updateEmployeeRoleSchema>;
+
 export const updateEmployeeFeaturesSchema = z.object({
   enabledFeatures: z.array(z.enum(ALL_FEATURES)),
 });

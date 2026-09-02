@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
-import { useCreateEmployee, useEmployees, useRemoveEmployee, useToggleEmployeeActive, useUpdateEmployeeFeatures } from '../api/employees';
+import { useCreateEmployee, useEmployees, useRemoveEmployee, useToggleEmployeeActive, useUpdateEmployeeFeatures, useUpdateEmployeeRole } from '../api/employees';
 import { ApiError } from '../api/client';
 import { Badge, Button, Card, Input, Modal, Select, Toggle } from '../components/ui';
 import { TOGGLEABLE_FEATURES } from '../lib/permissions';
 import type { Employee, Role } from '../types';
-import { Plus, Settings2, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 
 const roles: Role[] = ['doctor', 'nurse', 'cashier'];
 const emptyForm = { name: '', role: 'cashier' as Role, pin: '' };
@@ -18,12 +18,39 @@ export function Employees() {
   const toggleActive = useToggleEmployeeActive();
   const removeEmployee = useRemoveEmployee();
   const updateFeatures = useUpdateEmployeeFeatures();
+  const updateRole = useUpdateEmployeeRole();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [permTarget, setPermTarget] = useState<Employee | null>(null);
   const [permSelection, setPermSelection] = useState<string[]>([]);
+  const [roleTarget, setRoleTarget] = useState<Employee | null>(null);
+  const [roleValue, setRoleValue] = useState<Role>('cashier');
+  const [roleResetFeatures, setRoleResetFeatures] = useState(true);
+
+  const openRoleEditor = (e: Employee) => {
+    setRoleTarget(e);
+    setRoleValue(e.role);
+    // Defaulting ON matches the common intent — a role change usually means the person's
+    // job changed, so their tabs should follow. It can be turned off to preserve a
+    // deliberately customised tab set.
+    setRoleResetFeatures(true);
+  };
+
+  const saveRole = () => {
+    if (!roleTarget) return;
+    updateRole.mutate(
+      { id: roleTarget.id, role: roleValue, resetFeatures: roleResetFeatures },
+      {
+        onSuccess: () => {
+          toast.success(`${roleTarget.name} is now a ${roleValue}`);
+          setRoleTarget(null);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change the role'),
+      },
+    );
+  };
 
   const openPermissions = (e: Employee) => {
     setPermTarget(e);
@@ -103,7 +130,15 @@ export function Employees() {
                       {e.name} {e.id === currentUser?.id && <span className="text-xs text-slate-400">(you)</span>}
                     </td>
                     <td className="px-5 py-3">
-                      <Badge tone={e.role}>{e.role}</Badge>
+                      <button
+                        onClick={() => openRoleEditor(e)}
+                        disabled={e.id === currentUser?.id}
+                        title={e.id === currentUser?.id ? "You can't change your own role" : 'Change role'}
+                        className="inline-flex items-center gap-1.5 rounded-lg disabled:cursor-not-allowed enabled:hover:opacity-80"
+                      >
+                        <Badge tone={e.role}>{e.role}</Badge>
+                        {e.id !== currentUser?.id && <Pencil size={12} className="text-slate-400" />}
+                      </button>
                     </td>
                     <td className="px-5 py-3">
                       <Badge tone={e.active ? 'active' : 'inactive'}>{e.active ? 'Active' : 'Inactive'}</Badge>
@@ -196,6 +231,49 @@ export function Employees() {
             >
               Remove
             </Button>
+          </div>
+        </Modal>
+      )}
+
+      {roleTarget && (
+        <Modal title={`Change role — ${roleTarget.name}`} onClose={() => setRoleTarget(null)}>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Role</label>
+              <Select value={roleValue} onChange={(ev) => setRoleValue(ev.target.value as Role)}>
+                {roles.map((r) => (
+                  <option key={r} value={r}>
+                    {r[0].toUpperCase() + r.slice(1)}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-1 text-xs text-slate-400">
+                The role controls what the API itself permits — creating products, discounts, seeing analytics and
+                managing staff are all doctor-only regardless of which tabs are switched on.
+              </p>
+            </div>
+            <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 p-3">
+              <input
+                type="checkbox"
+                checked={roleResetFeatures}
+                onChange={(ev) => setRoleResetFeatures(ev.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-sm text-slate-600">
+                Also reset their visible tabs to the defaults for the new role
+                <span className="mt-0.5 block text-xs text-slate-400">
+                  Leave unticked to keep any custom tab access you set up for them.
+                </span>
+              </span>
+            </label>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setRoleTarget(null)}>
+                Cancel
+              </Button>
+              <Button onClick={saveRole} disabled={updateRole.isPending}>
+                {updateRole.isPending ? 'Saving…' : 'Save role'}
+              </Button>
+            </div>
           </div>
         </Modal>
       )}

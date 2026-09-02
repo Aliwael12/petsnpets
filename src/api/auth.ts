@@ -46,3 +46,11 @@ export function useLogout() {
     },
   });
 }
+
+/** Self-service PIN change. The backend re-verifies the current PIN even though the session
+ * token is already valid — a token proves the terminal was unlocked, not who is typing. */
+export function useChangePin() {
+  return useMutation({
+    mutationFn: (input: { currentPin: string; newPin: string }) => api.patch<void>('/sessions/pin', input),
+  });
+}

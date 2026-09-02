@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { PurchasingService } from './purchasing.service';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { Roles } from '../auth/roles.decorator';
@@ -7,8 +7,10 @@ import type { Actor } from '../auth/auth.types';
 import {
   createSupplierOrderSchema,
   createSupplierSchema,
+  listSupplierOrdersQuerySchema,
   type CreateSupplierDto,
   type CreateSupplierOrderDto,
+  type ListSupplierOrdersQueryDto,
 } from './dto/supplier.dto';
 
 @Controller('purchasing')
@@ -27,8 +29,8 @@ export class PurchasingController {
   }
 
   @Get('supplier-orders')
-  listOrders() {
-    return this.purchasing.listOrders();
+  listOrders(@Query(new ZodValidationPipe(listSupplierOrdersQuerySchema)) query: ListSupplierOrdersQueryDto) {
+    return this.purchasing.listOrders(query);
   }
 
   @Post('supplier-orders')

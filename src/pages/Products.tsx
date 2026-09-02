@@ -2,19 +2,23 @@ import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
 import { canEditProducts } from '../lib/permissions';
-import { useCreateProduct, useProducts, useUpdateProduct } from '../api/catalog';
+import { useCategories, useCreateProduct, useProducts, useUpdateProduct } from '../api/catalog';
 import { ApiError } from '../api/client';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select, formatCurrency } from '../components/ui';
 import type { Product, ProductCategory } from '../types';
 import { Pencil, Plus, Power, Search } from 'lucide-react';
 
-const categories: ProductCategory[] = ['food', 'accessories', 'medicine', 'grooming', 'service'];
-
-const emptyForm = { name: '', category: 'food' as ProductCategory, sku: '', unitPrice: '', stockQuantity: '', lowStockThreshold: '' };
+const emptyForm = { name: '', brand: '', category: '' as ProductCategory, sku: '', unitPrice: '', stockQuantity: '', lowStockThreshold: '' };
 
 export function Products() {
   const role = useAuthStore((s) => s.employee?.role);
   const canEdit = canEditProducts(role);
+  const { data: categories = [] } = useCategories();
+  // Deactivated categories still have to appear in the *filter* (existing products may sit
+  // in one), but only active ones are offered when creating something new.
+  const selectableCategories = categories.filter((c) => c.active);
+  const categoryLabel = (name: string) => categories.find((c) => c.name === name)?.label ?? name;
+  const isServiceCategory = (name: string) => categories.find((c) => c.name === name)?.kind === 'service';
 
   // Doctors manage the full catalog including deactivated items; everyone else only sees
   // what's currently sellable.
@@ -49,6 +53,7 @@ export function Products() {
     setEditing(p);
     setForm({
       name: p.name,
+      brand: p.brand ?? '',
       category: p.category,
       sku: p.sku,
       unitPrice: String(p.unitPrice / 100),
@@ -63,9 +68,14 @@ export function Products() {
       toast.error('Name and SKU are required');
       return;
     }
-    const isService = form.category === 'service';
+    if (!form.category) {
+      toast.error('Pick a category');
+      return;
+    }
+    const isService = isServiceCategory(form.category);
     const payload = {
       name: form.name.trim(),
+      brand: form.brand.trim() || undefined,
       category: form.category,
       sku: form.sku.trim(),
       unitPrice: Math.round((Number(form.unitPrice) || 0) * 100),
@@ -120,8 +130,8 @@ export function Products() {
         <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value as 'all' | ProductCategory)} className="w-44">
           <option value="all">All categories</option>
           {categories.map((c) => (
-            <option key={c} value={c}>
-              {c[0].toUpperCase() + c.slice(1)}
+            <option key={c.id} value={c.name}>
+              {c.label}
             </option>
           ))}
         </Select>
@@ -152,10 +162,10 @@ export function Products() {
                         {p.name} {!p.active && <span className="text-xs font-normal text-slate-400">(inactive)</span>}
                       </td>
                       <td className="px-5 py-3 text-slate-500">{p.sku}</td>
-                      <td className="px-5 py-3 capitalize text-slate-600">{p.category}</td>
+                      <td className="px-5 py-3 text-slate-600">{categoryLabel(p.category)}</td>
                       <td className="px-5 py-3 text-slate-600">{formatCurrency(p.unitPrice)}</td>
                       <td className="px-5 py-3">
-                        {p.category === 'service' ? (
+                        {p.kind === 'service' ? (
                           <Badge tone="service">Unlimited</Badge>
                         ) : low ? (
                           <Badge tone="low">{p.stockQuantity} left</Badge>
@@ -195,26 +205,33 @@ export function Products() {
               <label className="mb-1 block text-xs font-medium text-slate-500">Name</label>
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">SKU</label>
-              <Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Brand (optional)</label>
+                <Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="e.g. Royal Canin" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">SKU</label>
+                <Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Category</label>
               <Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as ProductCategory })}>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c[0].toUpperCase() + c.slice(1)}
+                <option value="">Select a category</option>
+                {selectableCategories.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.label}
                   </option>
                 ))}
               </Select>
             </div>
-            <div className={form.category === 'service' ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-3 gap-3'}>
+            <div className={isServiceCategory(form.category) ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-3 gap-3'}>
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">Price (EGP)</label>
                 <Input type="number" value={form.unitPrice} onChange={(e) => setForm({ ...form, unitPrice: e.target.value })} />
               </div>
-              {form.category === 'service' ? (
+              {isServiceCategory(form.category) ? (
                 <p className="text-xs text-slate-400">Services have unlimited availability — no stock to track.</p>
               ) : (
                 <>

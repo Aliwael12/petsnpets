@@ -7,3 +7,9 @@ export async function openInvoice(transactionId: string): Promise<void> {
   const { url } = await api.get<{ url: string }>(`/invoices/${transactionId}`);
   window.open(url, '_blank', 'noopener,noreferrer');
 }
+
+/** Same flow for a refund's credit note — rendered and stored server-side on first request. */
+export async function openRefundInvoice(refundId: string): Promise<void> {
+  const { url } = await api.get<{ url: string }>(`/invoices/refunds/${refundId}`);
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
