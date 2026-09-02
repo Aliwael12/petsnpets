@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { Supplier, SupplierOrder } from '../types';
+import type { PaymentMethod, Supplier, SupplierOrder } from '../types';
 
 export function useSuppliers() {
   return useQuery({ queryKey: ['suppliers'], queryFn: () => api.get<Supplier[]>('/purchasing/suppliers') });
@@ -19,6 +19,7 @@ export interface SupplierOrderFilters {
   /** ISO instants — inclusive bounds on when the shipment was received. */
   from?: string;
   to?: string;
+  paymentMethod?: PaymentMethod;
 }
 
 export function useSupplierOrders(filters: SupplierOrderFilters = {}) {
@@ -26,6 +27,7 @@ export function useSupplierOrders(filters: SupplierOrderFilters = {}) {
   if (filters.supplierId) params.set('supplierId', filters.supplierId);
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
+  if (filters.paymentMethod) params.set('paymentMethod', filters.paymentMethod);
   const qs = params.toString();
   return useQuery({
     queryKey: ['supplier-orders', filters],
@@ -48,6 +50,7 @@ export interface CreateSupplierOrderInput {
   quantity: number;
   costTotal: number;
   expiryDate?: string;
+  paymentMethod?: PaymentMethod;
 }
 
 export function useCreateSupplierOrder() {
@@ -58,6 +61,7 @@ export function useCreateSupplierOrder() {
       queryClient.invalidateQueries({ queryKey: ['supplier-orders'] });
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'financial-summary'] });
     },
   });
 }

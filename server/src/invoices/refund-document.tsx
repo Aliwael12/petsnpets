@@ -25,6 +25,7 @@ export function createRefundDocument(reactPdf: typeof ReactPdf) {
     colTotal: { flex: 1.2, textAlign: 'right' },
     headerCell: { fontSize: 8, textTransform: 'uppercase', color: '#64748b' },
     totalsBox: { marginTop: 12, alignSelf: 'flex-end', width: 220 },
+    totalsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
     grandTotalRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -98,6 +99,12 @@ export function createRefundDocument(reactPdf: typeof ReactPdf) {
                   a naive sum of list prices would overstate what was actually returned. */}
               <Text style={styles.grandTotalValue}>{money(refund.total)}</Text>
             </View>
+            {refund.paymentMethod ? (
+              <View style={styles.totalsRow}>
+                <Text>Refunded via</Text>
+                <Text>{PAYMENT_LABELS[refund.paymentMethod]}</Text>
+              </View>
+            ) : null}
           </View>
 
           {refund.reason ? (
@@ -116,6 +123,13 @@ export function createRefundDocument(reactPdf: typeof ReactPdf) {
   };
 }
 
+/** The owner's own vocabulary — see the same map in invoice-document.tsx. */
+const PAYMENT_LABELS: Record<'cash' | 'instapay' | 'card', string> = {
+  cash: 'Cash',
+  instapay: 'InstaPay',
+  card: 'Visa / Card',
+};
+
 export interface RefundDocProps {
   refund: {
     invoiceYear: number;
@@ -124,6 +138,9 @@ export interface RefundDocProps {
     createdAt: Date | string;
     total: number;
     reason?: string | null;
+    /** How the money went back to the customer. Absent on refunds recorded before payment
+     * tracking existed — the credit note then omits the line rather than printing a guess. */
+    paymentMethod?: 'cash' | 'instapay' | 'card' | null;
     items: { productName: string; quantity: number; unitPrice: number }[];
   };
   refundedByName: string;

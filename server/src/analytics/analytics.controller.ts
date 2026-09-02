@@ -4,9 +4,11 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { Roles } from '../auth/roles.decorator';
 import {
   employeeSummaryQuerySchema,
+  financialSummaryQuerySchema,
   revenueSplitQuerySchema,
   timeseriesQuerySchema,
   type EmployeeSummaryQueryDto,
+  type FinancialSummaryQueryDto,
   type RevenueSplitQueryDto,
   type TimeseriesQueryDto,
 } from './dto/analytics.dto';
@@ -39,6 +41,12 @@ export class AnalyticsController {
   @Get('revenue-split')
   revenueSplit(@Query(new ZodValidationPipe(revenueSplitQuerySchema)) query: RevenueSplitQueryDto) {
     return this.analytics.revenueSplit(query.kind);
+  }
+
+  /** Doctor-only like the rest of this controller — it exposes payroll-shaped totals. */
+  @Get('financial-summary')
+  financialSummary(@Query(new ZodValidationPipe(financialSummaryQuerySchema)) query: FinancialSummaryQueryDto) {
+    return this.analytics.financialSummary(query.year, query.month);
   }
 
   @Get('employee-summary')

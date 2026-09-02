@@ -14,6 +14,7 @@ export const ALL_FEATURES = [
   '/employees',
   '/analytics',
   '/money',
+  '/expenses',
   '/settings',
 ] as const;
 

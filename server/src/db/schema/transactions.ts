@@ -1,5 +1,6 @@
 import { bigint, index, integer, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { paymentMethodEnum } from './enums';
 import { clients } from './clients';
 import { employees } from './employees';
 import { products } from './catalog';
@@ -25,6 +26,12 @@ export const transactions = pgTable(
     discountId: uuid('discount_id').references(() => discounts.id, { onDelete: 'set null' }),
     discountAmount: bigint('discount_amount', { mode: 'number' }),
     total: bigint('total', { mode: 'number' }).notNull(),
+    // Deliberately nullable with NO default and NO backfill: NULL means "this sale predates
+    // payment tracking". Defaulting history to 'cash' would fabricate a fact the clinic never
+    // recorded, and the whole point of the breakdown is reconciling the drawer against
+    // reality. The API requires a method on every new sale; the UI shows NULL as
+    // "Not recorded".
+    paymentMethod: paymentMethodEnum('payment_method'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

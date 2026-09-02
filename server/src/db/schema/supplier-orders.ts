@@ -1,5 +1,6 @@
 import { bigint, index, integer, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { paymentMethodEnum } from './enums';
 import { suppliers } from './suppliers';
 import { products } from './catalog';
 import { employees } from './employees';
@@ -20,6 +21,10 @@ export const supplierOrders = pgTable(
      * the shipment rather than the product because two batches of the same product can
      * expire on different dates. */
     expiryDate: timestamp('expiry_date', { withTimezone: true }),
+    /** Stock paid for in cash empties the same drawer a cash sale fills, so without this the
+     * expense side of the payment breakdown would be blank. Nullable for the same
+     * no-backfill reason as transactions.paymentMethod. */
+    paymentMethod: paymentMethodEnum('payment_method'),
     loggedBy: uuid('logged_by')
       .notNull()
       .references(() => employees.id, { onDelete: 'restrict' }),
@@ -29,6 +34,8 @@ export const supplierOrders = pgTable(
     index('supplier_orders_supplier_id_idx').on(table.supplierId),
     index('supplier_orders_product_id_idx').on(table.productId),
     index('supplier_orders_logged_by_idx').on(table.loggedBy),
+    // The monthly-expenses query range-scans received_at; it was previously unindexed.
+    index('supplier_orders_received_at_idx').on(table.receivedAt),
   ],
 );
 

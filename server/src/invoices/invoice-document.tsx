@@ -114,6 +114,12 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
               <Text style={styles.grandTotalLabel}>Total</Text>
               <Text style={styles.grandTotalValue}>{money(transaction.total)}</Text>
             </View>
+            {transaction.paymentMethod ? (
+              <View style={styles.totalsRow}>
+                <Text>Paid with</Text>
+                <Text>{PAYMENT_LABELS[transaction.paymentMethod]}</Text>
+              </View>
+            ) : null}
           </View>
 
           <Text style={styles.footer}>Thank you for visiting Elite Blue Veterinary Center. This is a system-generated invoice.</Text>
@@ -122,6 +128,14 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
     );
   };
 }
+
+/** The owner's own vocabulary — the stored value is 'card' because the same terminal takes
+ * Mastercard and Meeza, but a customer reads "Visa / Card" on their receipt. */
+const PAYMENT_LABELS: Record<'cash' | 'instapay' | 'card', string> = {
+  cash: 'Cash',
+  instapay: 'InstaPay',
+  card: 'Visa / Card',
+};
 
 export interface InvoiceDocProps {
   transaction: {
@@ -132,6 +146,9 @@ export interface InvoiceDocProps {
     subtotal: number;
     discountAmount?: number | null;
     total: number;
+    /** Absent on sales recorded before payment tracking existed — the invoice then simply
+     * omits the line rather than printing a guess. */
+    paymentMethod?: 'cash' | 'instapay' | 'card' | null;
     items: { productName: string; quantity: number; unitPrice: number }[];
   };
   soldByName: string;

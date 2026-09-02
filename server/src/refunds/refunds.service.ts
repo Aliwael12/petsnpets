@@ -100,7 +100,18 @@ export class RefundsService {
 
       const [refund] = await tx
         .insert(refunds)
-        .values({ transactionId: txn.id, total: refundTotal, refundedBy: actor.id, reason: dto.reason })
+        .values({
+          transactionId: txn.id,
+          total: refundTotal,
+          refundedBy: actor.id,
+          reason: dto.reason,
+          // Defaults to however the sale was paid, because that's what actually happens
+          // most of the time. Explicitly overridable: a card sale refunded in cash from
+          // the drawer is real, and the breakdown has to show cash going out rather than
+          // card income un-reducing. `?? null` keeps a refund of a pre-tracking sale
+          // honestly blank instead of guessing.
+          paymentMethod: dto.paymentMethod ?? txn.paymentMethod ?? null,
+        })
         .returning();
 
       await tx.insert(refundItems).values(

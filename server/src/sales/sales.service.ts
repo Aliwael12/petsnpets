@@ -112,6 +112,7 @@ export class SalesService {
           discountId: dto.discountId,
           discountAmount: dto.discountId ? discountAmount : undefined,
           total,
+          paymentMethod: dto.paymentMethod,
         })
         .returning();
 

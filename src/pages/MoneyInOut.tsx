@@ -4,6 +4,7 @@ import { useSales } from '../api/sales';
 import { useRefunds } from '../api/refunds';
 import { useCreateSupplierOrder, useSupplierOrders, useSuppliers } from '../api/purchasing';
 import { useCategories, useProducts } from '../api/catalog';
+import { useExpenses } from '../api/expenses';
 import { openRefundInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
 import { businessDayKey, lastBusinessDays } from '../lib/timezone';
@@ -32,6 +33,7 @@ import {
   YAxis,
 } from 'recharts';
 import { FileText, Loader2, Plus } from 'lucide-react';
+import { PAYMENT_METHOD_LABELS, EXPENSE_CATEGORY_LABELS, type PaymentMethod } from '../types';
 
 type Range = 'all' | '7' | '30' | 'custom';
 
@@ -46,6 +48,7 @@ const emptyOrderForm = {
   quantity: '',
   costTotal: '',
   expiryDate: '',
+  paymentMethod: '' as PaymentMethod | '',
 };
 
 /** How soon a batch has to expire before the table flags it. */
@@ -64,6 +67,7 @@ export function MoneyInOut() {
   const { data: sales = [] } = useSales({ sinceDays });
   const { data: supplierOrders = [] } = useSupplierOrders();
   const { data: refunds = [] } = useRefunds();
+  const { data: expenses = [] } = useExpenses();
   const { data: suppliers = [] } = useSuppliers();
   const { data: categories = [] } = useCategories();
   const { data: products = [] } = useProducts({ activeOnly: false });
@@ -102,13 +106,25 @@ export function MoneyInOut() {
   const filteredOrders = supplierOrders.filter((o) => inRange(o.receivedAt) && matchesSupplier(o.supplierId));
   const filteredRefunds = refunds.filter((r) => inRange(r.createdAt));
 
-  // Money in is sales only, so a supplier filter — which is a property of purchases —
-  // deliberately doesn't touch it. Narrowing "money in" by supplier would be meaningless.
-  const moneyIn = filteredSales.reduce((sum, t) => sum + t.total, 0);
-  const supplierCost = filteredOrders.reduce((sum, o) => sum + o.costTotal, 0);
+  // paid_on is a bare Cairo calendar day; midday UTC lands on that same day in Cairo
+  // (UTC+2/+3), so it can go through the same range predicate as every instant here.
+  const filteredExpenses = expenses.filter((e) => inRange(`${e.paidOn}T12:00:00Z`));
+
+  // Deliberately the same model as the dashboard's money cards, so the two screens can never
+  // show the owner two different "net" figures:
+  //   income   = sales - refunds   (a refund reduces the sale it came from; it is NOT an
+  //                                 expense — counting it as one subtracts the same money
+  //                                 from net twice)
+  //   expenses = supplier shipments + running costs
+  // A supplier filter is a property of purchases only, so it narrows the shipment side and
+  // deliberately leaves income alone.
+  const grossSales = filteredSales.reduce((sum, t) => sum + t.total, 0);
   const refundCost = filteredRefunds.reduce((sum, r) => sum + r.total, 0);
-  const moneyOut = supplierCost + refundCost;
-  const net = moneyIn - moneyOut;
+  const income = grossSales - refundCost;
+  const supplierCost = filteredOrders.reduce((sum, o) => sum + o.costTotal, 0);
+  const operatingCost = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const moneyOut = supplierCost + operatingCost;
+  const net = income - moneyOut;
 
   const chartData = useMemo(() => {
     const days = range === '7' ? 7 : 30;
@@ -123,12 +139,18 @@ export function MoneyInOut() {
       const bucket = byKey.get(businessDayKey(o.receivedAt));
       if (bucket) bucket.out += o.costTotal;
     });
+    filteredExpenses.forEach((e) => {
+      const bucket = byKey.get(e.paidOn);
+      if (bucket) bucket.out += e.amount;
+    });
+    // Refunds reduce the day's income rather than adding to what went out — a day can end
+    // up with a negative bar, which is the honest picture of refunding more than you sold.
     filteredRefunds.forEach((r) => {
       const bucket = byKey.get(businessDayKey(r.createdAt));
-      if (bucket) bucket.out += r.total;
+      if (bucket) bucket.in -= r.total;
     });
     return keys.map((k) => byKey.get(k)!);
-  }, [filteredSales, filteredOrders, filteredRefunds, range]);
+  }, [filteredSales, filteredOrders, filteredRefunds, filteredExpenses, range]);
 
   const downloadRefundPdf = async (refundId: string) => {
     setRefundPdfPending(refundId);
@@ -192,6 +214,7 @@ export function MoneyInOut() {
         // A date input gives a bare calendar day; send it as an instant so the API's
         // ISO-datetime validation accepts it.
         expiryDate: form.expiryDate ? new Date(`${form.expiryDate}T00:00:00Z`).toISOString() : undefined,
+        paymentMethod: form.paymentMethod || undefined,
       },
       {
         onSuccess: () => {
@@ -212,7 +235,7 @@ export function MoneyInOut() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-navy-950">Money in / out</h1>
-          <p className="text-sm text-slate-500">Sales income vs. supplier costs</p>
+          <p className="text-sm text-slate-500">Sales income vs. everything the clinic spends</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)} className="w-48">
@@ -263,18 +286,28 @@ export function MoneyInOut() {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatTile label="Money in" value={formatCurrency(moneyIn)} tone="gold" hint={`${filteredSales.length} sales`} />
         <StatTile
-          label="Money out"
-          value={formatCurrency(moneyOut)}
-          hint={`${filteredOrders.length} orders · ${filteredRefunds.length} refunds`}
+          label="Income"
+          value={formatCurrency(income)}
+          tone="income"
+          hint={
+            refundCost > 0
+              ? `${filteredSales.length} sales − ${formatCurrency(refundCost)} refunded`
+              : `${filteredSales.length} sales`
+          }
         />
-        <StatTile label="Net" value={formatCurrency(net)} tone={net < 0 ? 'warn' : 'default'} />
+        <StatTile
+          label="Expenses"
+          value={formatCurrency(moneyOut)}
+          tone="expense"
+          hint={`${formatCurrency(supplierCost)} stock · ${formatCurrency(operatingCost)} running costs`}
+        />
+        <StatTile label="Net" value={formatCurrency(net)} tone={net < 0 ? 'warn' : 'gold'} hint="Income minus expenses" />
       </div>
 
       {range !== 'custom' && (
         <Card>
-          <CardHeader title="Cash flow" subtitle="Daily money in vs. out" />
+          <CardHeader title="Cash flow" subtitle="Daily income (after refunds) vs. what went out" />
           <div className="h-72 px-3 py-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ left: 8, right: 16 }}>
@@ -283,8 +316,8 @@ export function MoneyInOut() {
                 <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `${v / 100000}k`} />
                 <Tooltip formatter={(v) => formatCurrency(Number(v))} />
                 <Legend />
-                <Bar dataKey="in" name="Money in" fill="#f0c419" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="out" name="Money out" fill="#101c4d" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="in" name="Income" fill="#f0c419" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="out" name="Expenses" fill="#101c4d" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -307,6 +340,7 @@ export function MoneyInOut() {
                   <th className="px-5 py-3 font-medium">Product</th>
                   <th className="px-5 py-3 font-medium">Qty</th>
                   <th className="px-5 py-3 font-medium">Expires</th>
+                  <th className="px-5 py-3 font-medium">Paid with</th>
                   <th className="px-5 py-3 font-medium">Logged by</th>
                   <th className="px-5 py-3 font-medium">Date</th>
                   <th className="px-5 py-3 font-medium text-right">Cost</th>
@@ -339,6 +373,13 @@ export function MoneyInOut() {
                             <span className="text-slate-500">{formatDate(o.expiryDate)}</span>
                           )}
                         </td>
+                        <td className="whitespace-nowrap px-5 py-3 text-slate-600">
+                          {o.paymentMethod ? (
+                            PAYMENT_METHOD_LABELS[o.paymentMethod]
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
                         <td className="px-5 py-3">
                           <EmployeeTag name={o.loggedByEmployee?.name ?? 'Unknown'} />
                         </td>
@@ -347,6 +388,51 @@ export function MoneyInOut() {
                       </tr>
                     );
                   })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Running costs"
+          subtitle="Rent, salaries, utilities and the rest — recorded on the Expenses tab, counted here"
+        />
+        {filteredExpenses.length === 0 ? (
+          <EmptyState title="No running costs in this range" subtitle="Record them from the Expenses tab" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-5 py-3 font-medium">Description</th>
+                  <th className="px-5 py-3 font-medium">Category</th>
+                  <th className="px-5 py-3 font-medium">Paid with</th>
+                  <th className="px-5 py-3 font-medium">Paid on</th>
+                  <th className="px-5 py-3 text-right font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredExpenses
+                  .slice()
+                  .sort((a, b) => (a.paidOn < b.paidOn ? 1 : -1))
+                  .map((e) => (
+                    <tr key={e.id}>
+                      <td className="px-5 py-3 font-medium text-navy-950">
+                        {e.description}
+                        {e.payee && <span className="ml-1 text-xs font-normal text-slate-400">to {e.payee}</span>}
+                      </td>
+                      <td className="px-5 py-3">
+                        <Badge tone="supplier-order">{EXPENSE_CATEGORY_LABELS[e.category]}</Badge>
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3 text-slate-600">{PAYMENT_METHOD_LABELS[e.paymentMethod]}</td>
+                      <td className="whitespace-nowrap px-5 py-3 text-slate-500">{formatDate(`${e.paidOn}T12:00:00Z`)}</td>
+                      <td className="whitespace-nowrap px-5 py-3 text-right font-semibold text-navy-950">
+                        {formatCurrency(e.amount)}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
@@ -515,6 +601,23 @@ export function MoneyInOut() {
                 <label className="mb-1 block text-xs font-medium text-slate-500">Total cost (EGP)</label>
                 <Input type="number" value={form.costTotal} onChange={(e) => setForm({ ...form, costTotal: e.target.value })} />
               </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Paid with (optional)</label>
+              <Select
+                value={form.paymentMethod}
+                onChange={(e) => setForm({ ...form, paymentMethod: e.target.value as PaymentMethod | '' })}
+              >
+                <option value="">Not recorded</option>
+                <option value="cash">Cash</option>
+                <option value="instapay">InstaPay</option>
+                <option value="card">Visa / Card</option>
+              </Select>
+              <p className="mt-1 text-xs text-slate-400">
+                Optional here, unlike at the till — shipments are often paid later or on account, and guessing would make
+                the payment breakdown wrong rather than incomplete.
+              </p>
             </div>
 
             <div>

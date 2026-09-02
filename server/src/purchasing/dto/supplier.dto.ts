@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
+
 export const createSupplierSchema = z.object({
   name: z.string().trim().min(1).max(200),
   contactInfo: z.string().trim().max(300).default(''),
@@ -34,6 +36,9 @@ export const createSupplierOrderSchema = z
     quantity: z.number().int().positive(),
     costTotal: z.number().int().nonnegative(), // piastres
     expiryDate: z.iso.datetime().optional(),
+    /** How the shipment was paid for. Optional so an older client keeps working; omitted
+     * reads as "not recorded" in the expense breakdown. */
+    paymentMethod: paymentMethodSchema.optional(),
   })
   .refine((v) => v.supplierId || v.newSupplierName, {
     message: 'Provide either supplierId or newSupplierName.',
@@ -50,5 +55,6 @@ export const listSupplierOrdersQuerySchema = z.object({
   /** Inclusive ISO date bounds on received_at, for the Money in/out custom range filter. */
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
+  paymentMethod: paymentMethodSchema.optional(),
 });
 export type ListSupplierOrdersQueryDto = z.infer<typeof listSupplierOrdersQuerySchema>;

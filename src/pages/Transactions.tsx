@@ -7,6 +7,7 @@ import { openInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
 import { Badge, Card, EmployeeTag, EmptyState, Select, formatCurrency, formatDateTime } from '../components/ui';
 import { FileText, Loader2 } from 'lucide-react';
+import { PAYMENT_METHOD_LABELS } from '../types';
 
 export function Transactions() {
   const { data: employees = [] } = useEmployees();
@@ -83,6 +84,7 @@ export function Transactions() {
                 <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-5 py-3 font-medium">Customer</th>
                   <th className="px-5 py-3 font-medium">Items</th>
+                  <th className="px-5 py-3 font-medium">Paid with</th>
                   <th className="px-5 py-3 font-medium">Sold by</th>
                   <th className="px-5 py-3 font-medium">Date</th>
                   <th className="px-5 py-3 font-medium text-right">Total</th>
@@ -95,6 +97,9 @@ export function Transactions() {
                     <td className="px-5 py-3 font-medium text-navy-950">{t.customerName}</td>
                     <td className="px-5 py-3 text-slate-500">
                       {t.items.map((it) => `${it.product?.name ?? it.productId} ×${it.quantity}`).join(', ')}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3 text-slate-600">
+                      {t.paymentMethod ? PAYMENT_METHOD_LABELS[t.paymentMethod] : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-5 py-3">
                       <EmployeeTag name={t.soldByEmployee?.name ?? 'Unknown'} />

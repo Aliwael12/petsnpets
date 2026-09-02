@@ -222,26 +222,44 @@ export function StatTile({
   value,
   hint,
   tone = 'default',
+  action,
+  footer,
 }: {
   label: string;
   value: string;
   hint?: string;
-  tone?: 'default' | 'gold' | 'warn';
+  tone?: 'default' | 'gold' | 'warn' | 'income' | 'expense';
+  /** Rendered in the tile's top-right corner — a toggle or link that belongs to this
+   * figure specifically, rather than to the whole card. */
+  action?: ReactNode;
+  /** Optional detail revealed under the figure, e.g. a payment-method breakdown. */
+  footer?: ReactNode;
 }) {
   const toneClasses: Record<string, string> = {
     default: 'bg-white border-slate-200',
     gold: 'bg-gradient-to-br from-navy-900 to-navy-700 border-navy-900 text-white',
     warn: 'bg-red-50 border-red-200',
+    income: 'bg-emerald-50/60 border-emerald-200',
+    expense: 'bg-amber-50/60 border-amber-200',
+  };
+  const valueClasses: Record<string, string> = {
+    default: 'text-navy-950',
+    gold: 'text-white',
+    warn: 'text-red-700',
+    income: 'text-emerald-800',
+    expense: 'text-amber-800',
   };
   return (
-    <div className={`rounded-2xl border p-5 shadow-sm ${toneClasses[tone]}`}>
-      <p className={`text-xs font-medium uppercase tracking-wide ${tone === 'gold' ? 'text-gold-300' : 'text-slate-500'}`}>
-        {label}
-      </p>
-      <p className={`mt-2 text-2xl font-semibold ${tone === 'gold' ? 'text-white' : tone === 'warn' ? 'text-red-700' : 'text-navy-950'}`}>
-        {value}
-      </p>
+    <div className={`flex flex-col rounded-2xl border p-5 shadow-sm ${toneClasses[tone]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <p className={`text-xs font-medium uppercase tracking-wide ${tone === 'gold' ? 'text-gold-300' : 'text-slate-500'}`}>
+          {label}
+        </p>
+        {action}
+      </div>
+      <p className={`mt-2 text-2xl font-semibold tabular-nums ${valueClasses[tone]}`}>{value}</p>
       {hint && <p className={`mt-1 text-xs ${tone === 'gold' ? 'text-navy-100' : 'text-slate-400'}`}>{hint}</p>}
+      {footer}
     </div>
   );
 }

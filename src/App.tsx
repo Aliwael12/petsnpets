@@ -17,6 +17,7 @@ import { PriceChecker } from './pages/PriceChecker';
 import { Employees } from './pages/Employees';
 import { Analytics } from './pages/Analytics';
 import { MoneyInOut } from './pages/MoneyInOut';
+import { Expenses } from './pages/Expenses';
 import { Settings } from './pages/Settings';
 
 function App() {
@@ -124,6 +125,14 @@ function App() {
               element={
                 <RoleGuard path="/money">
                   <MoneyInOut />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/expenses"
+              element={
+                <RoleGuard path="/expenses">
+                  <Expenses />
                 </RoleGuard>
               }
             />

@@ -141,6 +141,20 @@ export interface Supplier {
   createdAt: string;
 }
 
+/** How money moved. `null` on a row means "not recorded" — written before payment
+ * tracking existed — and is deliberately not folded into 'cash'. */
+export type PaymentMethod = 'cash' | 'instapay' | 'card';
+export type PaymentBucket = PaymentMethod | 'unrecorded';
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentBucket, string> = {
+  cash: 'Cash',
+  instapay: 'InstaPay',
+  // The owner says "Visa"; the terminal also takes Mastercard and Meeza, so the stored
+  // value is 'card' and only the label carries the shorthand.
+  card: 'Visa / Card',
+  unrecorded: 'Not recorded',
+};
+
 export interface SupplierOrder {
   id: string;
   supplierId: string;
@@ -150,6 +164,7 @@ export interface SupplierOrder {
   loggedBy: string;
   receivedAt: string;
   expiryDate?: string | null;
+  paymentMethod?: PaymentMethod | null;
   supplier?: { id: string; name: string };
   product?: { id: string; name: string; brand?: string | null; category?: string };
   loggedByEmployee?: { id: string; name: string };
@@ -190,6 +205,7 @@ export interface Transaction {
   discountId?: string | null;
   discountAmount?: number | null; // piastres
   total: number; // piastres
+  paymentMethod?: PaymentMethod | null;
   createdAt: string;
   items: TransactionItem[];
   soldByEmployee?: { id: string; name: string };
@@ -211,6 +227,7 @@ export interface Refund {
   total: number; // piastres
   refundedBy: string;
   reason?: string | null;
+  paymentMethod?: PaymentMethod | null;
   createdAt: string;
   items: RefundItem[];
   refundedByEmployee?: { id: string; name: string };
@@ -270,4 +287,64 @@ export interface EmployeeSummary {
     discounts: { count: number };
   };
   activity: ActivityEntry[];
+}
+
+export const EXPENSE_CATEGORIES = [
+  'rent',
+  'salaries',
+  'utilities',
+  'maintenance',
+  'clinic-supplies',
+  'marketing',
+  'transport',
+  'government-fees',
+  'owner-drawings',
+  'other',
+] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+
+export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
+  rent: 'Rent',
+  salaries: 'Salaries',
+  utilities: 'Utilities',
+  maintenance: 'Maintenance & repairs',
+  'clinic-supplies': 'Clinic supplies',
+  marketing: 'Marketing',
+  transport: 'Transport',
+  'government-fees': 'Government fees',
+  'owner-drawings': 'Owner drawings',
+  other: 'Other',
+};
+
+export interface Expense {
+  id: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: number; // piastres
+  paymentMethod: PaymentMethod;
+  payee?: string | null;
+  /** YYYY-MM-DD — a Cairo calendar day off the receipt, not an instant. */
+  paidOn: string;
+  note?: string | null;
+  recordedBy: string;
+  createdAt: string;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  recordedByEmployee?: { id: string; name: string };
+  voidedByEmployee?: { id: string; name: string };
+}
+
+export type MethodBreakdown = Record<PaymentBucket, number>;
+
+export interface FinancialWindow {
+  year?: number;
+  month?: number;
+  income: { gross: number; refunds: number; net: number; byMethod: MethodBreakdown };
+  expenses: { stock: number; operating: number; total: number; byMethod: MethodBreakdown };
+  net: number;
+}
+
+export interface FinancialSummary {
+  month: FinancialWindow;
+  allTime: FinancialWindow;
 }

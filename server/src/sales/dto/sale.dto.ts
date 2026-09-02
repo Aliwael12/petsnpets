@@ -7,12 +7,18 @@ export const saleLineSchema = z.object({
   // client. See ProductsService / SalesService.
 });
 
+export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
+
 export const createSaleSchema = z.object({
   // Every sale must be linked to a client — see SalesService.executeCheckout, which
   // derives customerName from the client record rather than accepting free text.
   clientId: z.uuid(),
   items: z.array(saleLineSchema).min(1),
   discountId: z.uuid().optional(),
+  /** Optional at the API even though the POS makes it a required choice: a stale browser tab
+   * that hasn't reloaded must not start 400-ing mid-checkout at a live till. Omitted means
+   * "not recorded", the same as historical rows. */
+  paymentMethod: paymentMethodSchema.optional(),
 });
 export type CreateSaleDto = z.infer<typeof createSaleSchema>;
 

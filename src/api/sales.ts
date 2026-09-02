@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { Transaction } from '../types';
+import type { PaymentMethod, Transaction } from '../types';
 
 export interface SalesFilters {
   soldBy?: string;
@@ -30,6 +30,7 @@ export interface CheckoutInput {
   clientId: string;
   items: { productId: string; quantity: number }[];
   discountId?: string;
+  paymentMethod?: PaymentMethod;
 }
 
 export function useCheckout() {
@@ -40,6 +41,7 @@ export function useCheckout() {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['discounts'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'financial-summary'] });
     },
   });
 }

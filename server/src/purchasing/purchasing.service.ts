@@ -47,6 +47,7 @@ export class PurchasingService {
       query.supplierId ? eq(supplierOrders.supplierId, query.supplierId) : undefined,
       query.from ? gte(supplierOrders.receivedAt, new Date(query.from)) : undefined,
       query.to ? lte(supplierOrders.receivedAt, new Date(query.to)) : undefined,
+      query.paymentMethod ? eq(supplierOrders.paymentMethod, query.paymentMethod) : undefined,
     ].filter((c) => c !== undefined);
 
     return this.db.query.supplierOrders.findMany({
@@ -134,6 +135,7 @@ export class PurchasingService {
           quantity: dto.quantity,
           costTotal: dto.costTotal,
           expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
+          paymentMethod: dto.paymentMethod,
           loggedBy: actor.id,
         })
         .returning();

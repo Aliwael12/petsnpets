@@ -15,6 +15,15 @@ export const logTypeEnum = pgEnum('log_type', ['vaccination', 'shower', 'other']
 
 export const phoneLabelEnum = pgEnum('phone_label', ['mobile', 'home', 'work', 'other']);
 
+/** How money moved. 'card' rather than 'visa': the same terminal takes Mastercard and Meeza,
+ * so storing 'visa' on a Mastercard sale would be a false record — the UI still shows the
+ * owner's own vocabulary, "Card (Visa / Mastercard)". There is deliberately no 'other'
+ * member: an enum value is selectable, and staff would pick it whenever unsure, at which
+ * point the breakdown answers nothing. SQL NULL is unreachable from the API and therefore
+ * can only ever mean "recorded before payment tracking existed". */
+export const paymentMethodEnum = pgEnum('payment_method', ['cash', 'instapay', 'card']);
+export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
+
 export const discountKindEnum = pgEnum('discount_kind', ['percent', 'fixed']);
 
 export const appointmentStatusEnum = pgEnum('appointment_status', [

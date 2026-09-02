@@ -21,6 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/employees', label: 'Employees', defaultRoles: ['doctor'] },
   { path: '/analytics', label: 'Analytics', defaultRoles: ['doctor'] },
   { path: '/money', label: 'Money In / Out', defaultRoles: ['doctor'] },
+  { path: '/expenses', label: 'Expenses', defaultRoles: ['doctor'] },
   { path: '/settings', label: 'Settings', defaultRoles: ['doctor', 'nurse', 'cashier'] },
 ];
 
@@ -44,5 +45,12 @@ export function canEditProducts(role: Role | undefined): boolean {
 }
 
 export function canManageDiscounts(role: Role | undefined): boolean {
+  return role === 'doctor';
+}
+
+/** Income, expenses and net — doctor-only, and enforced independently by the API
+ * (@Roles('doctor') on the analytics and expenses controllers). Expenses include salaries,
+ * so this is not a tab toggle a doctor can hand to a cashier by mistake. */
+export function canViewFinancials(role: Role | undefined): boolean {
   return role === 'doctor';
 }

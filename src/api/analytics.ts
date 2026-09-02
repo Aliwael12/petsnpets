@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from './client';
 import type {
   BestSeller,
+  FinancialSummary,
   EmployeeSummary,
   RevenueByCategory,
   RevenueByEmployee,
@@ -38,6 +39,15 @@ export function useRevenueSplit(kind: 'service' | 'shop') {
   return useQuery({
     queryKey: ['analytics', 'revenue-split', kind],
     queryFn: () => api.get<RevenueSplit>(`/analytics/revenue-split?kind=${kind}`),
+  });
+}
+
+/** Income, expenses and net for the current month and all time, in one request — the
+ * dashboard's money cards all read from this so they can never disagree with each other. */
+export function useFinancialSummary() {
+  return useQuery({
+    queryKey: ['analytics', 'financial-summary'],
+    queryFn: () => api.get<FinancialSummary>('/analytics/financial-summary'),
   });
 }
 

@@ -17,6 +17,7 @@ import { ClientsModule } from './clients/clients.module';
 import { PetsModule } from './pets/pets.module';
 import { PetLogsModule } from './pet-logs/pet-logs.module';
 import { AppointmentsModule } from './appointments/appointments.module';
+import { ExpensesModule } from './expenses/expenses.module';
 import { SupabaseModule } from './supabase/supabase.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { EmployeesModule } from './employees/employees.module';
@@ -43,6 +44,7 @@ import { validateEnv } from './config/env.validation';
     PetsModule,
     PetLogsModule,
     AppointmentsModule,
+    ExpensesModule,
     SupabaseModule,
     InvoicesModule,
     EmployeesModule,

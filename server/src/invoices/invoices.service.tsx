@@ -57,6 +57,7 @@ export class InvoicesService {
           subtotal: txn.subtotal,
           discountAmount: txn.discountAmount,
           total: txn.total,
+          paymentMethod: txn.paymentMethod,
           items: txn.items.map((it) => ({ productName: it.product.name, quantity: it.quantity, unitPrice: it.unitPrice })),
         }}
         soldByName={txn.soldByEmployee.name}
@@ -116,6 +117,7 @@ export class InvoicesService {
         id: refunds.id,
         total: refunds.total,
         reason: refunds.reason,
+        paymentMethod: refunds.paymentMethod,
         createdAt: refunds.createdAt,
         invoiceYear: transactions.invoiceYear,
         invoiceNo: transactions.invoiceNo,
@@ -153,6 +155,7 @@ export class InvoicesService {
             createdAt: refund.createdAt,
             total: refund.total,
             reason: refund.reason,
+            paymentMethod: refund.paymentMethod,
             items,
           }}
           refundedByName={refund.refundedByName}

@@ -11,6 +11,7 @@ import { transactions, transactionItems } from './transactions';
 import { refunds, refundItems } from './refunds';
 import { discounts } from './discounts';
 import { appointments } from './appointments';
+import { expenses } from './expenses';
 
 export const employeesRelations = relations(employees, ({ many }) => ({
   petLogsPerformed: many(petLogs),
@@ -135,4 +136,9 @@ export const appointmentsRelations = relations(appointments, ({ one }) => ({
 
 export const productCategoriesRelations = relations(productCategories, ({ many }) => ({
   products: many(products),
+}));
+
+export const expensesRelations = relations(expenses, ({ one }) => ({
+  recordedByEmployee: one(employees, { fields: [expenses.recordedBy], references: [employees.id] }),
+  voidedByEmployee: one(employees, { fields: [expenses.voidedBy], references: [employees.id] }),
 }));

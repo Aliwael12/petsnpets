@@ -5,6 +5,16 @@ import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
 import { discounts, petLogs, refunds, supplierOrders, transactions } from '../db/schema';
 import type { ActivityEntry } from './activity.types';
+import type { FinancialSummary, FinancialWindow, MethodBreakdown, PaymentBucket } from './financial-summary.types';
+
+const PAYMENT_BUCKETS: PaymentBucket[] = ['cash', 'instapay', 'card', 'unrecorded'];
+const emptyBreakdown = (): MethodBreakdown => ({ cash: 0, instapay: 0, card: 0, unrecorded: 0 });
+
+/** Money sums are cast to ::bigint in SQL, not ::int, because int4 tops out at
+ * 21,474,836.47 EGP — a ceiling a clinic's all-time revenue genuinely reaches, and
+ * hitting it would be a query error rather than a wrong number. postgres-js hands
+ * bigint back as a string, so it has to come through Number() here. */
+const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v ?? 0));
 
 @Injectable()
 export class AnalyticsService {
@@ -128,6 +138,117 @@ export class AnalyticsService {
         discounts: { count: discountRows.length },
       },
       activity,
+    };
+  }
+
+  /**
+   * Every figure behind the dashboard's Income / Expenses / Net cards, for the current
+   * month and for all time, in one round trip.
+   *
+   * The model, stated once so nothing downstream has to guess:
+   *   income   = sales - refunds          (a refund is contra-revenue, NEVER an expense —
+   *                                        counting it as one would subtract the same money
+   *                                        from Net twice)
+   *   expenses = supplier shipments + operating expenses
+   *   net      = income - expenses
+   *
+   * Sales and refunds bucket on created_at in the clinic's timezone; supplier orders on
+   * received_at; operating expenses on paid_on, which is already a Cairo calendar date
+   * (a receipt's own date, routinely backdated) and so takes date bounds, not instants.
+   */
+  async financialSummary(year?: number, month?: number): Promise<FinancialSummary> {
+    const { resolvedYear, resolvedMonth } = await this.resolveMonthBounds(year, month);
+
+    const rows = await this.db.execute<{
+      win: 'month' | 'all';
+      stream: 'sales' | 'refunds' | 'stock' | 'operating';
+      method: string | null;
+      amount: string | number;
+    }>(rawSql`
+      with b as (
+        select
+          (make_date(${resolvedYear}, ${resolvedMonth}, 1)::timestamp at time zone ${this.tz}) as ts_start,
+          ((make_date(${resolvedYear}, ${resolvedMonth}, 1) + interval '1 month')::timestamp at time zone ${this.tz}) as ts_end,
+          make_date(${resolvedYear}, ${resolvedMonth}, 1) as d_start,
+          (make_date(${resolvedYear}, ${resolvedMonth}, 1) + interval '1 month')::date as d_end
+      )
+      select 'month' as win, 'sales' as stream, t.payment_method::text as method, sum(t.total)::bigint as amount
+        from transactions t, b where t.created_at >= b.ts_start and t.created_at < b.ts_end group by t.payment_method
+      union all
+      select 'all', 'sales', t.payment_method::text, sum(t.total)::bigint from transactions t group by t.payment_method
+      union all
+      select 'month', 'refunds', r.payment_method::text, sum(r.total)::bigint
+        from refunds r, b where r.created_at >= b.ts_start and r.created_at < b.ts_end group by r.payment_method
+      union all
+      select 'all', 'refunds', r.payment_method::text, sum(r.total)::bigint from refunds r group by r.payment_method
+      union all
+      select 'month', 'stock', o.payment_method::text, sum(o.cost_total)::bigint
+        from supplier_orders o, b where o.received_at >= b.ts_start and o.received_at < b.ts_end group by o.payment_method
+      union all
+      select 'all', 'stock', o.payment_method::text, sum(o.cost_total)::bigint from supplier_orders o group by o.payment_method
+      union all
+      select 'month', 'operating', e.payment_method::text, sum(e.amount)::bigint
+        from expenses e, b
+        where e.voided_at is null and e.paid_on >= b.d_start and e.paid_on < b.d_end group by e.payment_method
+      union all
+      select 'all', 'operating', e.payment_method::text, sum(e.amount)::bigint
+        from expenses e where e.voided_at is null group by e.payment_method
+    `);
+
+    return {
+      month: { year: resolvedYear, month: resolvedMonth, ...this.foldWindow(rows, 'month') },
+      allTime: this.foldWindow(rows, 'all'),
+    };
+  }
+
+  private foldWindow(
+    rows: { win: string; stream: string; method: string | null; amount: string | number }[],
+    win: 'month' | 'all',
+  ): FinancialWindow {
+    const incomeByMethod = emptyBreakdown();
+    const expensesByMethod = emptyBreakdown();
+    let gross = 0;
+    let refunded = 0;
+    let stock = 0;
+    let operating = 0;
+
+    for (const row of rows) {
+      if (row.win !== win) continue;
+      const amount = num(row.amount);
+      // A method Postgres reports that this build doesn't know about would otherwise land
+      // on an undefined key and turn the whole breakdown into NaN.
+      const bucket = (PAYMENT_BUCKETS as string[]).includes(row.method ?? '')
+        ? (row.method as PaymentBucket)
+        : 'unrecorded';
+
+      switch (row.stream) {
+        case 'sales':
+          gross += amount;
+          incomeByMethod[bucket] += amount;
+          break;
+        case 'refunds':
+          // Subtracted from the method it was actually paid back through, so the
+          // breakdown still sums to net income rather than merely resembling it.
+          refunded += amount;
+          incomeByMethod[bucket] -= amount;
+          break;
+        case 'stock':
+          stock += amount;
+          expensesByMethod[bucket] += amount;
+          break;
+        case 'operating':
+          operating += amount;
+          expensesByMethod[bucket] += amount;
+          break;
+      }
+    }
+
+    const netIncome = gross - refunded;
+    const totalExpenses = stock + operating;
+    return {
+      income: { gross, refunds: refunded, net: netIncome, byMethod: incomeByMethod },
+      expenses: { stock, operating, total: totalExpenses, byMethod: expensesByMethod },
+      net: netIncome - totalExpenses,
     };
   }
 

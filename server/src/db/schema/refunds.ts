@@ -1,5 +1,6 @@
 import { bigint, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { paymentMethodEnum } from './enums';
 import { transactions } from './transactions';
 import { products } from './catalog';
 import { employees } from './employees';
@@ -15,6 +16,10 @@ export const refunds = pgTable(
     refundedBy: uuid('refunded_by')
       .notNull()
       .references(() => employees.id, { onDelete: 'restrict' }),
+    /** How the money went back. Defaults server-side to the parent sale's method, but is
+     * overridable: a card sale refunded in cash from the drawer is a real scenario, and the
+     * breakdown must show the cash leaving rather than the card income un-reducing. */
+    paymentMethod: paymentMethodEnum('payment_method'),
     reason: text('reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

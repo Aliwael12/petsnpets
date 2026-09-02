@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
-import { canManageDiscounts } from '../lib/permissions';
+import { canManageDiscounts, canViewFinancials } from '../lib/permissions';
 import { useProducts } from '../api/catalog';
 import { useSales } from '../api/sales';
 import { useClients } from '../api/clients';
@@ -23,6 +23,7 @@ import {
   formatDateTime,
 } from '../components/ui';
 import type { DiscountKind } from '../types';
+import { MoneyOverview } from '../components/MoneyOverview';
 import { AlertTriangle, Plus, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -31,6 +32,7 @@ const emptyDiscountForm = { clientId: '', kind: 'percent' as DiscountKind, value
 export function Dashboard() {
   const employee = useAuthStore((s) => s.employee);
   const canDiscount = canManageDiscounts(employee?.role);
+  const canSeeMoney = canViewFinancials(employee?.role);
 
   const { data: products = [] } = useProducts({ activeOnly: true });
   const { data: sales = [] } = useSales({ sinceDays: 2 });
@@ -104,6 +106,8 @@ export function Dashboard() {
         <StatTile label="Products low on stock" value={String(lowStock.length)} tone={lowStock.length ? 'warn' : 'default'} />
         <StatTile label="Total products" value={String(products.length)} />
       </div>
+
+      {canSeeMoney && <MoneyOverview />}
 
       {canDiscount && (
         <Card>

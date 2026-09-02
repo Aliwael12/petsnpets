@@ -9,11 +9,47 @@ import { useCreateRefund, useRefunds } from '../api/refunds';
 import { openInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
 import { Badge, Button, Card, CardHeader, EmployeeTag, EmptyState, Input, Modal, PhoneListInput, TabSwitch, formatCurrency, formatDateTime } from '../components/ui';
+import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../types';
 import { Minus, Plus, RotateCcw, Search, ShoppingCart, Trash2, UserPlus, UserRound } from 'lucide-react';
 
 interface CartLine {
   productId: string;
   quantity: number;
+}
+
+const PAYMENT_OPTIONS: PaymentMethod[] = ['cash', 'instapay', 'card'];
+
+/** Deliberately has no pre-selected default and the sale can't be completed without a
+ * choice: silently defaulting to cash would fill the dashboard's breakdown with a method
+ * nobody actually picked, which is worse than the one extra tap it saves. */
+function PaymentPicker({
+  value,
+  onChange,
+  label,
+}: {
+  value: PaymentMethod | '';
+  onChange: (next: PaymentMethod) => void;
+  label: string;
+}) {
+  return (
+    <div className="mt-3">
+      <p className="mb-1.5 text-xs font-medium text-slate-500">{label}</p>
+      <div className="grid grid-cols-3 gap-1.5">
+        {PAYMENT_OPTIONS.map((method) => (
+          <button
+            key={method}
+            type="button"
+            onClick={() => onChange(method)}
+            className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+              value === method ? 'border-navy-800 bg-navy-800 text-white' : 'border-slate-200 text-slate-600 hover:border-navy-400'
+            }`}
+          >
+            {PAYMENT_METHOD_LABELS[method]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function discountAmountFor(subtotal: number, discount: { kind: 'percent' | 'fixed'; value: number } | undefined): number {
@@ -42,6 +78,7 @@ export function POS() {
   const [newClientModalOpen, setNewClientModalOpen] = useState(false);
   const [newClientForm, setNewClientForm] = useState({ name: '', phones: [''] as string[] });
   const [discountId, setDiscountId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
 
   const { data: availableDiscounts = [] } = useDiscounts({ clientId, availableOnly: true }, { enabled: !!clientId });
 
@@ -57,6 +94,9 @@ export function POS() {
   const [selectedTxnId, setSelectedTxnId] = useState<string | null>(null);
   const [refundQty, setRefundQty] = useState<Record<string, number>>({});
   const [refundReason, setRefundReason] = useState('');
+  /** Empty means "same way the sale was paid" — the server fills that in from the original
+   * transaction, so the common case needs no input at all. */
+  const [refundMethod, setRefundMethod] = useState<PaymentMethod | ''>('');
 
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id;
 
@@ -114,6 +154,7 @@ export function POS() {
     setClientId('');
     setClientSearch('');
     setDiscountId('');
+    setPaymentMethod('');
   };
 
   const selectClient = (id: string) => {
@@ -165,12 +206,17 @@ export function POS() {
       toast.error('Search for or add a customer first');
       return;
     }
+    if (!paymentMethod) {
+      toast.error('Choose how the customer paid');
+      return;
+    }
     if (!employee) return;
     checkout.mutate(
       {
         clientId,
         items: cartDetails.map((l) => ({ productId: l.productId, quantity: l.quantity })),
         discountId: selectedDiscount?.id,
+        paymentMethod,
       },
       {
         onSuccess: async (transaction) => {
@@ -221,13 +267,19 @@ export function POS() {
       return;
     }
     createRefund.mutate(
-      { transactionId: selectedTxn.id, items, reason: refundReason.trim() || undefined },
+      {
+        transactionId: selectedTxn.id,
+        items,
+        reason: refundReason.trim() || undefined,
+        paymentMethod: refundMethod || undefined,
+      },
       {
         onSuccess: () => {
           toast.success('Refund processed — stock updated');
           setSelectedTxnId(null);
           setRefundQty({});
           setRefundReason('');
+          setRefundMethod('');
         },
         onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not process refund'),
       },
@@ -376,6 +428,8 @@ export function POS() {
                 </div>
               )}
 
+              <PaymentPicker value={paymentMethod} onChange={setPaymentMethod} label="Paid with" />
+
               <div className="mt-4 flex flex-col gap-1 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">Subtotal</span>
@@ -393,7 +447,7 @@ export function POS() {
                 </div>
               </div>
 
-              <Button className="mt-4 w-full" onClick={completeSaleHandler} disabled={checkout.isPending || cart.length === 0 || !clientId}>
+              <Button className="mt-4 w-full" onClick={completeSaleHandler} disabled={checkout.isPending || cart.length === 0 || !clientId || !paymentMethod}>
                 {checkout.isPending ? 'Processing…' : 'Complete sale & open invoice'}
               </Button>
             </div>
@@ -480,6 +534,36 @@ export function POS() {
                   <div className="border-t border-slate-100 px-5 py-4">
                     <label className="mb-1 block text-xs font-medium text-slate-500">Reason (optional)</label>
                     <Input placeholder="e.g. Wrong item purchased" value={refundReason} onChange={(e) => setRefundReason(e.target.value)} />
+
+                    <div className="mt-3">
+                      <p className="mb-1.5 text-xs font-medium text-slate-500">Refunded with</p>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setRefundMethod('')}
+                          className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                            refundMethod === '' ? 'border-navy-800 bg-navy-800 text-white' : 'border-slate-200 text-slate-600 hover:border-navy-400'
+                          }`}
+                        >
+                          {selectedTxn.paymentMethod ? `Same (${PAYMENT_METHOD_LABELS[selectedTxn.paymentMethod]})` : 'Same as sale'}
+                        </button>
+                        {PAYMENT_OPTIONS.map((method) => (
+                          <button
+                            key={method}
+                            type="button"
+                            onClick={() => setRefundMethod(method)}
+                            className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                              refundMethod === method
+                                ? 'border-navy-800 bg-navy-800 text-white'
+                                : 'border-slate-200 text-slate-600 hover:border-navy-400'
+                            }`}
+                          >
+                            {PAYMENT_METHOD_LABELS[method]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="mt-4 flex items-center justify-between text-sm">
                       <span className="text-slate-500">Refund total</span>
                       <span className="text-lg font-semibold text-navy-950">{formatCurrency(refundTotal)}</span>
