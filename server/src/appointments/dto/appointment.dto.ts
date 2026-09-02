@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { queryBooleanSchema } from '../../common/dto/query-boolean';
 
 export const speciesSchema = z.enum(['dog', 'cat', 'bird', 'rabbit', 'other']);
 
@@ -23,7 +24,7 @@ export const appointmentStatusSchema = z.enum(['pending', 'confirmed', 'cancelle
 
 export const listAppointmentsQuerySchema = z.object({
   status: appointmentStatusSchema.optional(),
-  upcomingOnly: z.coerce.boolean().optional(),
+  upcomingOnly: queryBooleanSchema.optional(),
 });
 export type ListAppointmentsQueryDto = z.infer<typeof listAppointmentsQuerySchema>;
 

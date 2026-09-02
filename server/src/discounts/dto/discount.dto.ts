@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { queryBooleanSchema } from '../../common/dto/query-boolean';
 
 export const createDiscountSchema = z.object({
   clientId: z.uuid(),
@@ -13,6 +14,6 @@ export type CreateDiscountDto = z.infer<typeof createDiscountSchema>;
 
 export const listDiscountsQuerySchema = z.object({
   clientId: z.uuid().optional(),
-  availableOnly: z.coerce.boolean().default(false),
+  availableOnly: queryBooleanSchema.default(false),
 });
 export type ListDiscountsQueryDto = z.infer<typeof listDiscountsQuerySchema>;

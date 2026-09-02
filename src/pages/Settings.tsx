@@ -1,12 +1,20 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
 import { useChangePin } from '../api/auth';
-import { useCategories, useCreateCategory, useDeleteCategory, useUpdateCategory } from '../api/catalog';
+import {
+  useCategories,
+  useCreateCategory,
+  useCreateProduct,
+  useDeleteCategory,
+  useProducts,
+  useUpdateCategory,
+  useUpdateProduct,
+} from '../api/catalog';
 import { ApiError } from '../api/client';
-import { Badge, Button, Card, CardHeader, EmptyState, Input, Modal, Select, TabSwitch, Toggle } from '../components/ui';
-import type { Category, ProductKind } from '../types';
-import { KeyRound, Pencil, Plus, Tags, Trash2 } from 'lucide-react';
+import { Badge, Button, Card, CardHeader, EmptyState, Input, Modal, Select, TabSwitch, Toggle, formatCurrency } from '../components/ui';
+import type { Category, Product, ProductKind } from '../types';
+import { ChevronDown, ChevronRight, KeyRound, Pencil, Plus, Tags, Trash2 } from 'lucide-react';
 
 /** Mirrors the server's slug rule (see category.dto.ts) so the field can be derived from
  * the label as you type rather than asking for it twice. */
@@ -106,6 +114,211 @@ function ChangePinCard() {
   );
 }
 
+const emptyProductForm = { name: '', brand: '', sku: '', unitPrice: '', stockQuantity: '', lowStockThreshold: '' };
+
+/** Human-readable and unlikely to collide, so the field can be skipped entirely for a
+ *  product added from here. Mirrors deriveSku() in purchasing.service.ts. */
+function deriveSku(brand: string, name: string): string {
+  const slug = [brand, name]
+    .filter(Boolean)
+    .join(' ')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
+  return `${slug || 'ITEM'}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
+/**
+ * The products inside one category, expanded inline under its row.
+ *
+ * "Removing" a product retires it (active = false) rather than deleting it: a product that
+ * has ever been sold is referenced by transaction_items, and deleting it would tear a hole
+ * in the sales history the analytics read from. Retired products stay listed here, greyed,
+ * with a one-click restore — so the action is reversible and visibly so.
+ */
+function CategoryProducts({ category }: { category: Category }) {
+  const { data: products = [], isLoading } = useProducts({ category: category.name, activeOnly: false });
+  const createProduct = useCreateProduct();
+  const updateProduct = useUpdateProduct();
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [form, setForm] = useState(emptyProductForm);
+
+  const isService = category.kind === 'service';
+
+  const submit = () => {
+    if (!form.name.trim()) {
+      toast.error('Give the product a name');
+      return;
+    }
+    createProduct.mutate(
+      {
+        name: form.name.trim(),
+        brand: form.brand.trim() || undefined,
+        category: category.name,
+        // Auto-derived when left blank: the SKU matters to the shelf, not to someone
+        // filling in a category from Settings.
+        sku: form.sku.trim() || deriveSku(form.brand.trim(), form.name.trim()),
+        unitPrice: Math.round((Number(form.unitPrice) || 0) * 100),
+        stockQuantity: isService ? 0 : Number(form.stockQuantity) || 0,
+        lowStockThreshold: isService ? 0 : Number(form.lowStockThreshold) || 0,
+      },
+      {
+        onSuccess: () => {
+          toast.success(`Added to ${category.label}`);
+          setForm(emptyProductForm);
+          setAddOpen(false);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not add the product'),
+      },
+    );
+  };
+
+  const setActive = (product: Product, active: boolean) => {
+    updateProduct.mutate(
+      { id: product.id, patch: { active } },
+      {
+        onSuccess: () => toast.success(active ? `"${product.name}" restored` : `"${product.name}" removed from sale`),
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not update the product'),
+      },
+    );
+  };
+
+  return (
+    <>
+      <div className="bg-slate-50/70 px-5 py-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            {isService ? 'Services' : 'Products'} in {category.label}
+          </p>
+          <Button variant="ghost" onClick={() => setAddOpen(true)}>
+            <Plus size={14} /> Add {isService ? 'service' : 'product'}
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <p className="text-sm text-slate-400">Loading…</p>
+        ) : products.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            Nothing in this category yet. Add the first one, or move an existing product here from the Products tab.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-slate-200/70">
+            {products.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
+                <div className={p.active ? '' : 'opacity-50'}>
+                  <span className="text-sm font-medium text-navy-950">
+                    {p.brand && <span className="text-slate-400">{p.brand} · </span>}
+                    {p.name}
+                  </span>
+                  <span className="ml-2 text-xs text-slate-400">{p.sku}</span>
+                  {!p.active && (
+                    <span className="ml-2">
+                      <Badge tone="used">Removed</Badge>
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm tabular-nums text-slate-600">{formatCurrency(p.unitPrice)}</span>
+                  {!isService && <span className="text-xs text-slate-400">{p.stockQuantity} in stock</span>}
+                  {p.active ? (
+                    <button
+                      onClick={() => setActive(p, false)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="Remove from sale — keeps its sales history"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setActive(p, true)}
+                      className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-white hover:text-navy-800"
+                    >
+                      Restore
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-xs text-slate-400">
+          Removing takes an item off the POS and the catalog but keeps every sale it was ever part of, so past invoices
+          and reports stay correct. You can restore it at any time.
+        </p>
+      </div>
+
+      {addOpen && (
+        <Modal title={`Add to ${category.label}`} onClose={() => setAddOpen(false)}>
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Name</label>
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Brand (optional)</label>
+                <Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Price (EGP)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.unitPrice}
+                  onChange={(e) => setForm({ ...form, unitPrice: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">SKU (optional)</label>
+                <Input
+                  value={form.sku}
+                  onChange={(e) => setForm({ ...form, sku: e.target.value })}
+                  placeholder="Generated if left empty"
+                />
+              </div>
+            </div>
+            {!isService && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">Opening stock</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.stockQuantity}
+                    onChange={(e) => setForm({ ...form, stockQuantity: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">Low-stock alert at</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.lowStockThreshold}
+                    onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="mt-2 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={submit} disabled={createProduct.isPending}>
+                {createProduct.isPending ? 'Adding…' : `Add ${isService ? 'service' : 'product'}`}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 const emptyCategoryForm = { label: '', name: '', kind: 'good' as ProductKind, sortOrder: '' };
 
 function CategoriesCard() {
@@ -119,6 +332,9 @@ function CategoriesCard() {
   const [editing, setEditing] = useState<Category | null>(null);
   const [editLabel, setEditLabel] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  /** Only one category is open at a time — each one fetches its own products, and a page
+   *  of simultaneously expanded rows would be a page of simultaneous requests. */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const submitNew = () => {
     const label = form.label.trim();
@@ -182,7 +398,7 @@ function CategoriesCard() {
       <Card>
         <CardHeader
           title="Product categories"
-          subtitle="Used to group products across the catalog, POS and analytics"
+          subtitle="Used to group products across the catalog, POS and analytics. Open one to add or remove its products."
           action={
             <Button onClick={() => setAddOpen(true)}>
               <Plus size={15} /> Add category
@@ -205,8 +421,17 @@ function CategoriesCard() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {categories.map((c) => (
-                  <tr key={c.id}>
+                  <Fragment key={c.id}>
+                  <tr>
                     <td className="px-5 py-3">
+                      <button
+                        onClick={() => setExpandedId((id) => (id === c.id ? null : c.id))}
+                        className="mr-2 rounded p-0.5 align-middle text-slate-400 hover:bg-slate-100 hover:text-navy-800"
+                        aria-expanded={expandedId === c.id}
+                        title={expandedId === c.id ? 'Hide products' : 'Show products'}
+                      >
+                        {expandedId === c.id ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                      </button>
                       <span className="font-medium text-navy-950">{c.label}</span>
                       <span className="ml-2 text-xs text-slate-400">{c.name}</span>
                       {c.isSystem && (
@@ -251,6 +476,14 @@ function CategoriesCard() {
                       </div>
                     </td>
                   </tr>
+                  {expandedId === c.id && (
+                    <tr>
+                      <td colSpan={5} className="p-0">
+                        <CategoryProducts category={c} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

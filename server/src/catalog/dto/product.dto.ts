@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { queryBooleanSchema } from '../../common/dto/query-boolean';
 
 // Categories are rows in product_categories now, not a fixed enum, so this is just a
 // well-formed-slug check — whether the category actually exists (and is still active) is
@@ -33,7 +34,7 @@ export type UpdateProductDto = z.infer<typeof updateProductSchema>;
 export const listProductsQuerySchema = z.object({
   category: categoryNameSchema.optional(),
   search: z.string().trim().max(200).optional(),
-  activeOnly: z.coerce.boolean().default(true),
+  activeOnly: queryBooleanSchema.default(true),
 });
 
 export type ListProductsQueryDto = z.infer<typeof listProductsQuerySchema>;

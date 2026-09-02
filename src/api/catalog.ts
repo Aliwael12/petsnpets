@@ -42,11 +42,19 @@ export interface CreateProductInput {
   lowStockThreshold: number;
 }
 
+/** Also invalidates ['categories']: each category row carries a productCount, and the
+ *  Settings panel that adds a product sits inside that very row — leaving it stale means
+ *  the count contradicts the list directly beneath it. */
+function invalidateCatalog(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['products'] });
+  queryClient.invalidateQueries({ queryKey: ['categories'] });
+}
+
 export function useCreateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateProductInput) => api.post<Product>('/catalog/products', input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
+    onSuccess: () => invalidateCatalog(queryClient),
   });
 }
 
@@ -55,7 +63,8 @@ export function useUpdateProduct() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<CreateProductInput> & { active?: boolean } }) =>
       api.patch<Product>(`/catalog/products/${id}`, patch),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
+    // A category change moves the product between two counts, so both must refresh.
+    onSuccess: () => invalidateCatalog(queryClient),
   });
 }
 

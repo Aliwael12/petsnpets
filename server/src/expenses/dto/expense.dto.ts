@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { queryBooleanSchema } from '../../common/dto/query-boolean';
 
 /**
  * A fixed list rather than a pgEnum or a managed table: the clinic asked to *record*
@@ -63,6 +64,6 @@ export const listExpensesQuerySchema = z.object({
   to: paidOnSchema.optional(),
   category: expenseCategorySchema.optional(),
   paymentMethod: paymentMethodSchema.optional(),
-  includeVoided: z.coerce.boolean().default(false),
+  includeVoided: queryBooleanSchema.default(false),
 });
 export type ListExpensesQueryDto = z.infer<typeof listExpensesQuerySchema>;
