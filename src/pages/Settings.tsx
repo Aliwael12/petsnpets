@@ -32,8 +32,8 @@ function ChangePinCard() {
   const [form, setForm] = useState({ currentPin: '', newPin: '', confirmPin: '' });
 
   const submit = () => {
-    if (!/^\d{4,12}$/.test(form.newPin)) {
-      toast.error('The new PIN must be 4–12 digits');
+    if (!/^[A-Za-z0-9]{4,12}$/.test(form.newPin)) {
+      toast.error('The new PIN must be 4–12 letters and/or numbers');
       return;
     }
     if (form.newPin !== form.confirmPin) {
@@ -61,7 +61,7 @@ function ChangePinCard() {
     <Card>
       <CardHeader
         title="Change your PIN"
-        subtitle="This is the PIN you use to sign in at the terminal"
+        subtitle="This is the PIN you use to sign in at the terminal — letters and numbers are both fine"
         action={<KeyRound size={16} className="text-slate-400" />}
       />
       <div className="flex max-w-md flex-col gap-3 px-5 py-4">
@@ -69,7 +69,6 @@ function ChangePinCard() {
           <label className="mb-1 block text-xs font-medium text-slate-500">Current PIN</label>
           <Input
             type="password"
-            inputMode="numeric"
             autoComplete="current-password"
             value={form.currentPin}
             onChange={(e) => setForm({ ...form, currentPin: e.target.value })}
@@ -81,18 +80,16 @@ function ChangePinCard() {
             <label className="mb-1 block text-xs font-medium text-slate-500">New PIN</label>
             <Input
               type="password"
-              inputMode="numeric"
               autoComplete="new-password"
               value={form.newPin}
               onChange={(e) => setForm({ ...form, newPin: e.target.value })}
-              placeholder="4–12 digits"
+              placeholder="4–12 letters or numbers"
             />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Confirm new PIN</label>
             <Input
               type="password"
-              inputMode="numeric"
               autoComplete="new-password"
               value={form.confirmPin}
               onChange={(e) => setForm({ ...form, confirmPin: e.target.value })}

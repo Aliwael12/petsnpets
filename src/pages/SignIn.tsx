@@ -87,7 +87,6 @@ export function SignIn() {
               <label className="mb-1 block text-xs font-medium text-slate-500">PIN</label>
               <Input
                 type="password"
-                inputMode="numeric"
                 autoFocus
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}

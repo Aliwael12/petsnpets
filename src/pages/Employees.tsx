@@ -81,7 +81,7 @@ export function Employees() {
       return;
     }
     if (form.pin.trim().length < 4) {
-      toast.error('PIN must be at least 4 digits');
+      toast.error('PIN must be at least 4 characters');
       return;
     }
     createEmployee.mutate(
@@ -194,8 +194,8 @@ export function Employees() {
               </Select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">PIN (4+ digits, used to sign in)</label>
-              <Input type="password" inputMode="numeric" value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} placeholder="••••" />
+              <label className="mb-1 block text-xs font-medium text-slate-500">PIN (4+ letters or numbers, used to sign in)</label>
+              <Input type="password" value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} placeholder="••••" />
             </div>
             <div className="mt-2 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setModalOpen(false)}>
