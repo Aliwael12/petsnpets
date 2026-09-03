@@ -99,18 +99,23 @@ export class ProductsService {
   }
 
   async update(id: string, dto: UpdateProductDto, actor: Actor) {
-    return this.db.transaction(async (tx) => {
-      const [before] = await tx.select().from(products).where(eq(products.id, id)).limit(1);
-      if (!before) throw new NotFoundAppError('Product', id);
+    const [before] = await this.db.select().from(products).where(eq(products.id, id)).limit(1);
+    if (!before) throw new NotFoundAppError('Product', id);
 
-      // If the category changes, `kind` must follow it — a product can never end up in a
-      // service category while still flagged as a stocked good (or vice versa). Zeroing
-      // stock on that transition goes through InventoryService so the drop is a real ledger
-      // movement, not a silent write to the cache that would desync it from stock_movements.
-      const nextKind =
-        dto.category && dto.category !== before.category
-          ? (await this.categories.resolveActiveOrThrow(dto.category)).kind
-          : before.kind;
+    // Resolved before opening the transaction, like create()'s and PurchasingService's own
+    // category lookups: CategoriesService.resolveActiveOrThrow() queries through its own
+    // non-transactional `db`, not this method's `tx`. Calling it from inside the transaction
+    // used to be exactly the deadlock this comment now prevents — in production, where the
+    // pool is capped at one connection per serverless invocation (db.module.ts), the open
+    // transaction holds that single connection while awaiting this nested query, which can
+    // never get one. Nothing times out fast either: postgres.js queues the query rather than
+    // erroring, so the request just hangs until Vercel kills the function at 15s — and the
+    // stuck connection isn't released, so every other request the same warm container serves
+    // afterward hangs the same way, including edits that never touch the category at all.
+    // The pool is 15-deep locally, so this was invisible in dev.
+    const nextKind = dto.category && dto.category !== before.category ? (await this.categories.resolveActiveOrThrow(dto.category)).kind : before.kind;
+
+    return this.db.transaction(async (tx) => {
       const becomingService = nextKind === 'service' && before.kind !== 'service';
       if (becomingService && before.stockQuantity !== 0) {
         await this.inventory.applyMovement(tx, {
