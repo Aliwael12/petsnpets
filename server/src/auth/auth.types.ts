@@ -7,6 +7,11 @@ export interface Actor {
   id: string;
   name: string;
   role: Role;
+  /** Server-enforced grants, resolved fresh from the employees row on every request so a
+   *  revoked permission stops working immediately rather than at the next sign-in. Empty
+   *  for an admin, who holds everything implicitly — always ask hasPermission(), never
+   *  this array directly. */
+  permissions: string[];
 }
 
 export interface OperatorTokenPayload {

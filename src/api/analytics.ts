@@ -42,10 +42,13 @@ export function useBestSellers(range: DayRange) {
   });
 }
 
-export function useRevenueByEmployee(range: DayRange) {
+/** Ranks staff against each other, so it is analytics:all-only on the server. Pass
+ *  `enabled: false` for a self-scoped viewer rather than firing a guaranteed 403. */
+export function useRevenueByEmployee(range: DayRange, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ['analytics', 'revenue-by-employee', range.from, range.to],
     queryFn: () => api.get<RevenueByEmployee[]>(`/analytics/revenue-by-employee${rangeQs(range)}`),
+    enabled: options.enabled ?? true,
   });
 }
 

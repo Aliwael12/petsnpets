@@ -8,6 +8,7 @@ import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error
 import { AuditService } from '../common/audit/audit.service';
 import type { Actor } from '../auth/auth.types';
 import { DEFAULT_FEATURES_BY_ROLE } from './features';
+import { DEFAULT_PERMISSIONS_BY_ROLE } from './permissions';
 import type { CreateEmployeeDto, UpdateEmployeeFeaturesDto, UpdateEmployeeRoleDto } from './dto/employee.dto';
 
 function pgErrorCode(err: unknown): string | undefined {
@@ -39,7 +40,7 @@ export class EmployeesService {
       .orderBy(asc(employees.name));
   }
 
-  /** Doctor-only roster view. Still never returns pinHash. */
+  /** Roster view for whoever holds employees:manage. Still never returns pinHash. */
   list() {
     return this.db
       .select({
@@ -48,6 +49,7 @@ export class EmployeesService {
         role: employees.role,
         active: employees.active,
         enabledFeatures: employees.enabledFeatures,
+        permissions: employees.permissions,
         createdAt: employees.createdAt,
       })
       .from(employees)
@@ -57,31 +59,40 @@ export class EmployeesService {
   async create(dto: CreateEmployeeDto, actor: Actor) {
     const pinHash = await argon2.hash(dto.pin);
     const enabledFeatures = DEFAULT_FEATURES_BY_ROLE[dto.role];
+    // Only an admin is born with grants; everyone else starts at zero and receives them
+    // one at a time, so a new hire can never quietly arrive holding the keys.
+    const permissions = DEFAULT_PERMISSIONS_BY_ROLE[dto.role];
     return this.db.transaction(async (tx) => {
       const [row] = await tx
         .insert(employees)
-        .values({ name: dto.name, role: dto.role, pinHash, active: true, enabledFeatures })
-        .returning({ id: employees.id, name: employees.name, role: employees.role, active: employees.active, enabledFeatures: employees.enabledFeatures });
+        .values({ name: dto.name, role: dto.role, pinHash, active: true, enabledFeatures, permissions })
+        .returning({
+          id: employees.id,
+          name: employees.name,
+          role: employees.role,
+          active: employees.active,
+          enabledFeatures: employees.enabledFeatures,
+          permissions: employees.permissions,
+        });
       await this.audit.log(tx, {
         actorId: actor.id,
         action: 'employee.create',
         entityType: 'employee',
         entityId: row.id,
-        after: { name: row.name, role: row.role, enabledFeatures: row.enabledFeatures },
+        after: { name: row.name, role: row.role, enabledFeatures: row.enabledFeatures, permissions: row.permissions },
       });
       return row;
     });
   }
 
   /**
-   * Changes an employee's role. Guarded against self-demotion: a doctor removing their own
-   * doctor role could leave the clinic with no one able to manage staff at all — and the
-   * request is authorized by the role being given away, so it would also revoke the caller's
-   * own permission mid-flight.
+   * Changes an employee's role. Guarded against self-demotion: giving away the role that
+   * authorized the request revokes the caller's own access mid-flight, and if they were the
+   * last admin nobody is left who can undo it.
    */
   async updateRole(id: string, dto: UpdateEmployeeRoleDto, actor: Actor) {
     if (id === actor.id) {
-      throw new ValidationAppError('You cannot change your own role. Ask another doctor to do it.');
+      throw new ValidationAppError('You cannot change your own role. Ask an admin to do it.');
     }
 
     return this.db.transaction(async (tx) => {
@@ -90,23 +101,20 @@ export class EmployeesService {
 
       if (before.role === dto.role && !dto.resetFeatures) return before;
 
-      // Losing the last active doctor would leave nobody able to manage employees,
-      // categories, discounts or analytics — the app would be unadministrable.
-      if (before.role === 'doctor' && dto.role !== 'doctor') {
-        const [{ count }] = await tx
-          .select({ count: rawSql<number>`count(*)::int` })
-          .from(employees)
-          .where(and(eq(employees.role, 'doctor'), eq(employees.active, true)));
-        if (count <= 1) {
-          throw new ValidationAppError('This is the last active doctor — promote someone else before changing this role.');
-        }
+      // Losing the last active admin would leave nobody able to manage staff, the catalog
+      // or the books, and no way to grant anyone else those rights — the clinic would be
+      // permanently locked out of its own system.
+      if (before.role === 'admin' && dto.role !== 'admin') {
+        await this.assertNotLastAdmin(tx, 'change this role');
       }
 
       const [after] = await tx
         .update(employees)
         .set({
           role: dto.role,
-          ...(dto.resetFeatures ? { enabledFeatures: DEFAULT_FEATURES_BY_ROLE[dto.role] } : {}),
+          ...(dto.resetFeatures
+            ? { enabledFeatures: DEFAULT_FEATURES_BY_ROLE[dto.role], permissions: DEFAULT_PERMISSIONS_BY_ROLE[dto.role] }
+            : {}),
         })
         .where(eq(employees.id, id))
         .returning({
@@ -115,6 +123,7 @@ export class EmployeesService {
           role: employees.role,
           active: employees.active,
           enabledFeatures: employees.enabledFeatures,
+          permissions: employees.permissions,
         });
 
       await this.audit.log(tx, {
@@ -122,13 +131,38 @@ export class EmployeesService {
         action: 'employee.update_role',
         entityType: 'employee',
         entityId: id,
-        before: { role: before.role, enabledFeatures: before.enabledFeatures },
-        after: { role: after.role, enabledFeatures: after.enabledFeatures },
+        before: { role: before.role, enabledFeatures: before.enabledFeatures, permissions: before.permissions },
+        after: { role: after.role, enabledFeatures: after.enabledFeatures, permissions: after.permissions },
       });
       return after;
     });
   }
 
+  /**
+   * Refuses anything that would remove the clinic's only remaining way in.
+   *
+   * Admin is the only role that can grant permissions, so if the last one disappears there
+   * is no path back — not through the UI, not through another role, not by asking a
+   * colleague. Every operation that could drop the count runs through here.
+   */
+  private async assertNotLastAdmin(tx: Database, action: string) {
+    const [{ count }] = await tx
+      .select({ count: rawSql<number>`count(*)::int` })
+      .from(employees)
+      .where(and(eq(employees.role, 'admin'), eq(employees.active, true)));
+    if (count <= 1) {
+      throw new ValidationAppError(
+        `This is the last active admin — nobody else could manage staff or grant access. Make someone else an admin before you ${action}.`,
+      );
+    }
+  }
+
+  /**
+   * Saves the nav tabs and the permission grants together — one screen, one save.
+   *
+   * Grants are only written when the caller actually sent them, so a client that predates
+   * permissions can still change tabs without silently revoking everything on the row.
+   */
   async updateFeatures(id: string, dto: UpdateEmployeeFeaturesDto, actor: Actor) {
     return this.db.transaction(async (tx) => {
       const [before] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
@@ -136,17 +170,27 @@ export class EmployeesService {
 
       const [after] = await tx
         .update(employees)
-        .set({ enabledFeatures: dto.enabledFeatures })
+        .set({
+          enabledFeatures: dto.enabledFeatures,
+          ...(dto.permissions ? { permissions: dto.permissions } : {}),
+        })
         .where(eq(employees.id, id))
-        .returning({ id: employees.id, name: employees.name, role: employees.role, active: employees.active, enabledFeatures: employees.enabledFeatures });
+        .returning({
+          id: employees.id,
+          name: employees.name,
+          role: employees.role,
+          active: employees.active,
+          enabledFeatures: employees.enabledFeatures,
+          permissions: employees.permissions,
+        });
 
       await this.audit.log(tx, {
         actorId: actor.id,
         action: 'employee.update_features',
         entityType: 'employee',
         entityId: id,
-        before: { enabledFeatures: before.enabledFeatures },
-        after: { enabledFeatures: after.enabledFeatures },
+        before: { enabledFeatures: before.enabledFeatures, permissions: before.permissions },
+        after: { enabledFeatures: after.enabledFeatures, permissions: after.permissions },
       });
       return after;
     });
@@ -155,7 +199,7 @@ export class EmployeesService {
   async toggleActive(id: string, actor: Actor) {
     // Deactivating yourself takes effect on the very next request — OperatorAuthGuard
     // rejects inactive employees — so it is an instant self-lockout, and if you were the
-    // last doctor nobody is left who can undo it. Both guards below close that door.
+    // last admin nobody is left who can undo it. Both guards below close that door.
     if (id === actor.id) {
       throw new ValidationAppError('You cannot deactivate your own account.');
     }
@@ -164,16 +208,8 @@ export class EmployeesService {
       const [before] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
       if (!before) throw new NotFoundAppError('Employee', id);
 
-      if (before.active && before.role === 'doctor') {
-        const [{ count }] = await tx
-          .select({ count: rawSql<number>`count(*)::int` })
-          .from(employees)
-          .where(and(eq(employees.role, 'doctor'), eq(employees.active, true)));
-        if (count <= 1) {
-          throw new ValidationAppError(
-            'This is the last active doctor — the clinic would be left with nobody able to manage staff. Promote another doctor first.',
-          );
-        }
+      if (before.active && before.role === 'admin') {
+        await this.assertNotLastAdmin(tx, 'deactivate this account');
       }
 
       const [after] = await tx
@@ -202,6 +238,9 @@ export class EmployeesService {
       return await this.db.transaction(async (tx) => {
         const [before] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
         if (!before) throw new NotFoundAppError('Employee', id);
+        if (before.role === 'admin' && before.active) {
+          await this.assertNotLastAdmin(tx, 'remove this account');
+        }
 
         await tx.delete(employees).where(eq(employees.id, id));
         await this.audit.log(tx, {

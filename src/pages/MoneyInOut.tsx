@@ -10,6 +10,8 @@ import { openRefundInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
 import { businessDayKey, formatRangeLabel } from '../lib/timezone';
 import { useDateRangeStore } from '../store/useDateRangeStore';
+import { useAuthStore } from '../store/useAuthStore';
+import { canReceiveStock } from '../lib/permissions';
 import { DateRangePicker } from '../components/DateRangePicker';
 import {
   Badge,
@@ -62,6 +64,9 @@ export function MoneyInOut() {
   const rangeLabel = formatRangeLabel(range);
 
   const [supplierFilter, setSupplierFilter] = useState('all');
+  // Receiving a shipment sets cost prices, which every margin figure downstream is computed
+  // from — so it stays with the owner even for someone granted the books read-only.
+  const canLogShipments = canReceiveStock(useAuthStore((s) => s.employee?.role));
 
   // Every list is filtered by the SERVER now, on the same inclusive Cairo day bounds the
   // summary uses — no client-side date predicate, so a table and the tile above it cannot
@@ -202,9 +207,11 @@ export function MoneyInOut() {
               </option>
             ))}
           </Select>
-          <Button onClick={() => setModalOpen(true)}>
-            <Plus size={16} /> Log supplier order
-          </Button>
+          {canLogShipments && (
+            <Button onClick={() => setModalOpen(true)}>
+              <Plus size={16} /> Log supplier order
+            </Button>
+          )}
         </div>
       </div>
 

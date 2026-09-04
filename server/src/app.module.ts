@@ -7,6 +7,7 @@ import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { OperatorAuthGuard } from './auth/operator-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { PermissionsGuard } from './auth/permissions.guard';
 import { CatalogModule } from './catalog/catalog.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PurchasingModule } from './purchasing/purchasing.module';
@@ -53,10 +54,13 @@ import { validateEnv } from './config/env.validation';
   controllers: [AppController],
   providers: [
     // Every route requires a valid operator token by default (opt out with @Public()),
-    // and RolesGuard enforces @Roles() where present — both apply globally so a new
-    // route can't accidentally ship unauthenticated.
+    // then RolesGuard enforces @Roles() and PermissionsGuard enforces @Permissions() where
+    // present. All three apply globally so a new route can't accidentally ship
+    // unauthenticated — and the order matters: both checkers read req.actor, which only
+    // OperatorAuthGuard sets.
     { provide: APP_GUARD, useClass: OperatorAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule {}

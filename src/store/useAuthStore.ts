@@ -7,6 +7,9 @@ export interface SessionEmployee {
   name: string;
   role: Role;
   enabledFeatures: string[];
+  /** Optional because a session persisted before permissions existed rehydrates without it.
+   *  hasPermission() treats a missing list as "no grants", which is the safe reading. */
+  permissions?: string[];
 }
 
 interface AuthState {

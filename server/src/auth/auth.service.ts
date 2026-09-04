@@ -63,7 +63,13 @@ export class AuthService {
     return {
       token,
       expiresAt: expiresAt.toISOString(),
-      employee: { id: employee.id, name: employee.name, role: employee.role, enabledFeatures: employee.enabledFeatures },
+      employee: {
+        id: employee.id,
+        name: employee.name,
+        role: employee.role,
+        permissions: employee.permissions,
+        enabledFeatures: employee.enabledFeatures,
+      },
     };
   }
 

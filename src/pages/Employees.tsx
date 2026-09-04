@@ -5,10 +5,10 @@ import { useCreateEmployee, useEmployees, useRemoveEmployee, useToggleEmployeeAc
 import { ApiError } from '../api/client';
 import { Badge, Button, Card, Input, Modal, Select, Toggle } from '../components/ui';
 import { TOGGLEABLE_FEATURES } from '../lib/permissions';
-import type { Employee, Role } from '../types';
+import { ALL_PERMISSIONS, PERMISSION_LABELS, ROLE_LABELS, type Employee, type Permission, type Role } from '../types';
 import { Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 
-const roles: Role[] = ['doctor', 'nurse', 'cashier'];
+const roles: Role[] = ['admin', 'doctor', 'nurse', 'cashier'];
 const emptyForm = { name: '', role: 'cashier' as Role, pin: '' };
 
 export function Employees() {
@@ -25,6 +25,7 @@ export function Employees() {
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [permTarget, setPermTarget] = useState<Employee | null>(null);
   const [permSelection, setPermSelection] = useState<string[]>([]);
+  const [grantSelection, setGrantSelection] = useState<string[]>([]);
   const [roleTarget, setRoleTarget] = useState<Employee | null>(null);
   const [roleValue, setRoleValue] = useState<Role>('cashier');
   const [roleResetFeatures, setRoleResetFeatures] = useState(true);
@@ -44,7 +45,7 @@ export function Employees() {
       { id: roleTarget.id, role: roleValue, resetFeatures: roleResetFeatures },
       {
         onSuccess: () => {
-          toast.success(`${roleTarget.name} is now a ${roleValue}`);
+          toast.success(`${roleTarget.name} is now ${roleValue === 'admin' ? 'an' : 'a'} ${ROLE_LABELS[roleValue]}`);
           setRoleTarget(null);
         },
         onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change the role'),
@@ -55,6 +56,11 @@ export function Employees() {
   const openPermissions = (e: Employee) => {
     setPermTarget(e);
     setPermSelection(e.enabledFeatures ?? []);
+    setGrantSelection(e.permissions ?? []);
+  };
+
+  const toggleGrant = (permission: Permission, checked: boolean) => {
+    setGrantSelection((cur) => (checked ? [...cur, permission] : cur.filter((p) => p !== permission)));
   };
 
   const toggleFeature = (path: string, checked: boolean) => {
@@ -64,7 +70,7 @@ export function Employees() {
   const savePermissions = () => {
     if (!permTarget) return;
     updateFeatures.mutate(
-      { id: permTarget.id, enabledFeatures: permSelection },
+      { id: permTarget.id, enabledFeatures: permSelection, permissions: grantSelection as Permission[] },
       {
         onSuccess: () => {
           toast.success('Permissions updated');
@@ -151,7 +157,14 @@ export function Employees() {
                         title={e.id === currentUser?.id ? "You can't edit your own permissions" : undefined}
                       >
                         <Settings2 size={13} />
-                        {featureCount === TOGGLEABLE_FEATURES.length ? 'All tabs' : `${featureCount} tab${featureCount === 1 ? '' : 's'}`}
+                        {e.role === 'admin'
+                          ? 'Full access'
+                          : featureCount === TOGGLEABLE_FEATURES.length
+                            ? 'All tabs'
+                            : `${featureCount} tab${featureCount === 1 ? '' : 's'}`}
+                        {e.role !== 'admin' && (e.permissions?.length ?? 0) > 0
+                          ? ` · ${e.permissions!.length} permission${e.permissions!.length === 1 ? '' : 's'}`
+                          : ''}
                       </button>
                     </td>
                     <td className="px-5 py-3">
@@ -188,7 +201,7 @@ export function Employees() {
               <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
                 {roles.map((r) => (
                   <option key={r} value={r}>
-                    {r[0].toUpperCase() + r.slice(1)}
+                    {ROLE_LABELS[r]}
                   </option>
                 ))}
               </Select>
@@ -243,13 +256,13 @@ export function Employees() {
               <Select value={roleValue} onChange={(ev) => setRoleValue(ev.target.value as Role)}>
                 {roles.map((r) => (
                   <option key={r} value={r}>
-                    {r[0].toUpperCase() + r.slice(1)}
+                    {ROLE_LABELS[r]}
                   </option>
                 ))}
               </Select>
               <p className="mt-1 text-xs text-slate-400">
-                The role controls what the API itself permits — creating products, discounts, seeing analytics and
-                managing staff are all doctor-only regardless of which tabs are switched on.
+                An admin can do everything. Every other role starts with nothing beyond their own work and is given
+                access one permission at a time — set those under Access.
               </p>
             </div>
             <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 p-3">
@@ -279,15 +292,43 @@ export function Employees() {
       )}
 
       {permTarget && (
-        <Modal title={`Permissions — ${permTarget.name}`} onClose={() => setPermTarget(null)} wide>
+        <Modal title={`Access — ${permTarget.name}`} onClose={() => setPermTarget(null)} wide>
+          {permTarget.role === 'admin' ? (
+            <p className="mb-4 rounded-xl border border-navy-200 bg-navy-50 px-4 py-3 text-sm text-navy-900">
+              {permTarget.name.split(' ')[0]} is an admin and always has full access to everything. Change their role
+              first if you need to limit what they can do.
+            </p>
+          ) : null}
+
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Tabs</p>
           <p className="mb-3 text-sm text-slate-500">
-            Choose which tabs {permTarget.name.split(' ')[0]} can see. A disabled tab disappears from their sidebar entirely.
+            Which tabs {permTarget.name.split(' ')[0]} can see. A disabled tab disappears from their sidebar entirely.
           </p>
           <div className="flex flex-col divide-y divide-slate-100">
             {TOGGLEABLE_FEATURES.map((item) => (
               <div key={item.path} className="flex items-center justify-between py-2.5">
                 <span className="text-sm text-navy-950">{item.label}</span>
                 <Toggle checked={permSelection.includes(item.path)} onChange={(checked) => toggleFeature(item.path, checked)} />
+              </div>
+            ))}
+          </div>
+
+          <p className="mb-2 mt-6 text-xs font-medium uppercase tracking-wide text-slate-500">Permissions</p>
+          <p className="mb-3 text-sm text-slate-500">
+            What {permTarget.name.split(' ')[0]} is allowed to do. Unlike tabs, these are enforced by the server — the
+            Money and Employees tabs appear on their own when the matching permission is granted.
+          </p>
+          <div className="flex flex-col divide-y divide-slate-100">
+            {ALL_PERMISSIONS.map((permission) => (
+              <div key={permission} className="flex items-center justify-between gap-4 py-2.5">
+                <div>
+                  <p className="text-sm text-navy-950">{PERMISSION_LABELS[permission].label}</p>
+                  <p className="text-xs text-slate-400">{PERMISSION_LABELS[permission].detail}</p>
+                </div>
+                <Toggle
+                  checked={permTarget.role === 'admin' || grantSelection.includes(permission)}
+                  onChange={(checked) => toggleGrant(permission, checked)}
+                />
               </div>
             ))}
           </div>

@@ -31,9 +31,10 @@
     "verify:phase6": "node scripts/test-phase6-analytics.mjs",
     "verify:phase7": "node scripts/test-phase7-appointments.mjs",
     "verify:phase8": "node scripts/test-phase8-settings.mjs",
-    "verify:all": "npm run seed && npm run verify:phase3 && npm run verify:phase4 && npm run verify:phase5 && npm run verify:phase6 && npm run verify:phase7 && npm run verify:phase8 && npm run verify:phase9 && npm run verify:phase10",
+    "verify:all": "npm run seed && npm run verify:phase3 && npm run verify:phase4 && npm run verify:phase5 && npm run verify:phase6 && npm run verify:phase7 && npm run verify:phase8 && npm run verify:phase9 && npm run verify:phase10 && npm run verify:phase11",
     "verify:phase9": "node scripts/test-phase9-financials.mjs",
-    "verify:phase10": "node scripts/test-phase10-ranges.mjs"
+    "verify:phase10": "node scripts/test-phase10-ranges.mjs",
+    "verify:phase11": "node scripts/test-phase11-roles.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
+import { canManageCategories as canManageCategoriesFor } from '../lib/permissions';
 import { useChangePin } from '../api/auth';
 import {
   useCategories,
@@ -582,8 +583,8 @@ function CategoriesCard() {
 }
 
 export function Settings() {
-  const role = useAuthStore((s) => s.employee?.role);
-  const canManageCategories = role === 'doctor';
+  const employee = useAuthStore((s) => s.employee);
+  const canManageCategories = canManageCategoriesFor(employee);
   const [tab, setTab] = useState<'pin' | 'categories'>('pin');
 
   return (
@@ -605,8 +606,8 @@ export function Settings() {
         )}
       </div>
 
-      {/* Category management is doctor-only on the API too — a non-doctor simply never sees
-          the switcher, and the endpoints would reject them regardless. */}
+      {/* categories:manage is enforced on the API too — someone without it simply never
+          sees the switcher, and the endpoints would reject them regardless. */}
       {canManageCategories && tab === 'categories' ? (
         <CategoriesCard />
       ) : (
@@ -616,7 +617,7 @@ export function Settings() {
             <Card>
               <div className="flex items-center gap-3 px-5 py-4 text-sm text-slate-500">
                 <Tags size={16} className="text-slate-400" />
-                Product categories are managed by a doctor.
+                Product categories are managed by an admin.
               </div>
             </Card>
           )}

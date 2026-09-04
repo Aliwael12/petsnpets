@@ -10,8 +10,15 @@ interface RequestWithActor extends Request {
   actor?: Actor;
 }
 
-/** Reads the roles required by @Roles() and checks them against req.actor.role, set by
- * OperatorAuthGuard. Always pair the two guards, OperatorAuthGuard first. */
+/**
+ * Reads the roles required by @Roles() and checks them against req.actor.role, set by
+ * OperatorAuthGuard. Always pair the two guards, OperatorAuthGuard first.
+ *
+ * An admin satisfies every @Roles() check without being listed. That is what makes "admin
+ * has access to everything" true by construction rather than by remembering to add 'admin'
+ * to each decorator — and it means a handler written as @Roles('doctor', 'nurse') can never
+ * accidentally lock the clinic owner out of their own system.
+ */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
@@ -27,6 +34,7 @@ export class RolesGuard implements CanActivate {
     if (!req.actor) {
       throw new Error('RolesGuard used without OperatorAuthGuard running first');
     }
+    if (req.actor.role === 'admin') return true;
     if (!required.includes(req.actor.role)) {
       throw new ForbiddenAppError(`This action requires one of: ${required.join(', ')}.`);
     }

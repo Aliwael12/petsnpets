@@ -1,6 +1,10 @@
 import { pgEnum } from 'drizzle-orm/pg-core';
 
-export const roleEnum = pgEnum('role', ['doctor', 'nurse', 'cashier']);
+/** Ordered most- to least-privileged. 'admin' is the clinic owner: the only role that can
+ *  manage staff, the catalog and the books without an explicit grant. Everything below it
+ *  starts with no privileges at all and receives them one at a time — see
+ *  employees/permissions.ts. */
+export const roleEnum = pgEnum('role', ['admin', 'doctor', 'nurse', 'cashier']);
 export type Role = (typeof roleEnum.enumValues)[number];
 
 // NOTE: product categories used to be a pgEnum here. They are now rows in the

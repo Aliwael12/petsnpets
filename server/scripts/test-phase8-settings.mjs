@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import postgres from 'postgres';
+import { actorWithRole, cleanupSessions } from './lib/session.mjs';
 
 const BASE = 'http://localhost:3001/v1';
 const sql = postgres(process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:55322/postgres');
@@ -16,28 +17,16 @@ function check(name, ok, extra) {
   }
 }
 
-/** Looked up by ROLE, not by name: this suite is the one that also gets run against a
- * hosted database whose employees have been renamed by real users, and hardcoded names
- * would only work on a freshly seeded local stack. */
-async function loginAsRole(role, pin = '1234') {
-  const [emp] = await sql`select id from employees where role = ${role} and active order by name limit 1`;
-  const res = await fetch(`${BASE}/sessions/pin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employeeId: emp.id, pin, deviceId: 'phase8-test' }),
-  });
-  const body = await res.json();
-  return { token: body.token, id: emp.id };
-}
-
-async function loginAsId(id, pin) {
-  const res = await fetch(`${BASE}/sessions/pin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employeeId: id, pin, deviceId: 'phase8-test' }),
-  });
-  const body = await res.json();
-  return { token: body.token, id };
+/**
+ * Looked up by ROLE, not by name — a name is display text real users edit. Sessions are
+ * minted rather than PIN-logged (see scripts/lib/session.mjs), so this runs against the
+ * clinic's real database, where the PINs belong to actual people.
+ *
+ * Returns null when nobody holds the role: a small clinic legitimately has no nurse, and
+ * the assertions that need one skip rather than crash.
+ */
+async function loginAsRole(role) {
+  return actorWithRole(sql, role, 'phase8-test');
 }
 
 async function req(method, path, token, body) {
@@ -50,12 +39,40 @@ async function req(method, path, token, body) {
   return { status: res.status, body: text ? JSON.parse(text) : undefined };
 }
 
+/**
+ * Unlike phases 9-11, this suite MUTATES things that belong to real people: it changes an
+ * employee's PIN and back, and creates categories and products. Against the clinic's own
+ * database a crash between the change and the restore would leave a staff member unable to
+ * sign in, so it refuses to run there at all — the same guard, and the same reasoning, as
+ * src/db/seed/run-seed.ts.
+ */
+function assertLocalDatabase() {
+  const host = new URL(process.env.DATABASE_URL ?? 'postgres://localhost').hostname;
+  const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  if (!isLocal) {
+    console.error(
+      `Refusing to run: DATABASE_URL points at "${host}", which is not a local database.
+This suite changes a real employee PIN and creates catalog rows — a crash midway
+would leave someone locked out of their own account.
+Run it against a local Supabase stack instead (npm run db:reset-local && npm run seed).`,
+    );
+    process.exit(1);
+  }
+}
+
 async function main() {
   console.log('== Phase 8: Settings, categories, credit notes, shipments ==');
+  assertLocalDatabase();
 
-  const doctor = await loginAsRole('doctor');
+  // Category management moved from the doctor role to the categories:manage permission,
+  // which only an admin holds by default — so the privileged actor here is the admin.
+  const doctor = await loginAsRole('admin');
   const cashier = await loginAsRole('cashier');
   const nurse = await loginAsRole('nurse');
+  if (!doctor) {
+    console.error('No active admin on this database — has the promote_founding_admin migration run?');
+    process.exit(1);
+  }
 
   // --- Categories ------------------------------------------------------------
   {
@@ -84,6 +101,10 @@ async function main() {
     check('a cashier cannot create a category', res.status === 403, res.body);
   }
   {
+    if (!nurse) {
+      console.log('  --  - a nurse cannot create a category  (skipped: no nurse on this database)');
+      return;
+    }
     const res = await req('POST', '/catalog/categories', nurse.token, { name: 'phase8-nope2', label: 'Nope', kind: 'good' });
     check('a nurse cannot create a category', res.status === 403, res.body);
   }
@@ -151,8 +172,13 @@ async function main() {
     const same = await req('PATCH', '/sessions/pin', doctor.token, { currentPin: '1234', newPin: '1234' });
     check('the new PIN must differ from the current one', same.status === 400, same.body);
 
-    const nonNumeric = await req('PATCH', '/sessions/pin', doctor.token, { currentPin: '1234', newPin: 'abcd' });
-    check('a non-numeric PIN is rejected', nonNumeric.status === 400, nonNumeric.body);
+    const letters = await req('PATCH', '/sessions/pin', doctor.token, { currentPin: '1234', newPin: 'ab12cd' });
+    check('a PIN may now contain letters as well as numbers', letters.status === 204, letters.body);
+    // Put it back before the rest of this block asserts against '1234'.
+    await req('PATCH', '/sessions/pin', doctor.token, { currentPin: 'ab12cd', newPin: '1234' });
+
+    const symbols = await req('PATCH', '/sessions/pin', doctor.token, { currentPin: '1234', newPin: 'ab!@' });
+    check('a PIN with symbols is still rejected', symbols.status === 400, symbols.body);
 
     const ok = await req('PATCH', '/sessions/pin', doctor.token, { currentPin: '1234', newPin: '5678' });
     check('a valid PIN change succeeds', ok.status === 204, ok.body);

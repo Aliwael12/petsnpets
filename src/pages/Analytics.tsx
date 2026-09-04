@@ -11,6 +11,8 @@ import {
 import { ActivityFeed } from '../components/ActivityFeed';
 import { DateRangePicker } from '../components/DateRangePicker';
 import { useDateRangeStore } from '../store/useDateRangeStore';
+import { useAuthStore } from '../store/useAuthStore';
+import { canViewAllAnalytics } from '../lib/permissions';
 import { formatRangeLabel } from '../lib/timezone';
 import { Card, CardHeader, Select, StatTile, TabSwitch, formatCurrency } from '../components/ui';
 import {
@@ -53,7 +55,16 @@ function shortEmployeeName(name: string): string {
 }
 
 export function Analytics() {
-  const { data: employees = [] } = useEmployees();
+  const me = useAuthStore((s) => s.employee);
+  // Without this grant every figure on the page is scoped to your own sales — by the API,
+  // in SQL, not by filtering a clinic-wide answer here. The flag only decides what the page
+  // offers to look at.
+  const seesEveryone = canViewAllAnalytics(me);
+
+  // The roster is employees:manage-only, so it is fetched only by people who can pick
+  // someone other than themselves. Everyone else summarises their own activity.
+  const { data: roster = [] } = useEmployees({ enabled: seesEveryone });
+  const employees = seesEveryone ? roster : me ? [{ id: me.id, name: me.name, role: me.role }] : [];
   const [revenueView, setRevenueView] = useState<'service' | 'shop'>('service');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
 
@@ -63,11 +74,13 @@ export function Analytics() {
   const setRange = useDateRangeStore((s) => s.setRange);
   const rangeLabel = formatRangeLabel(range);
 
-  const employeeId = selectedEmployeeId || employees[0]?.id || '';
+  // Pinned to yourself when you may only see yourself — asking for a colleague's id is
+  // refused by the API, so there is no point offering it.
+  const employeeId = seesEveryone ? selectedEmployeeId || roster[0]?.id || '' : (me?.id ?? '');
 
   const { data: timeseries = [] } = useRevenueTimeseries(range);
   const { data: bestSellers = [] } = useBestSellers(range);
-  const { data: revenueByEmployeeRaw = [] } = useRevenueByEmployee(range);
+  const { data: revenueByEmployeeRaw = [] } = useRevenueByEmployee(range, { enabled: seesEveryone });
   const { data: revenueByCategoryRaw = [] } = useRevenueByCategory(range);
   const { data: revenueSplit } = useRevenueSplit(revenueView, range);
   const { data: employeeSummary } = useEmployeeSummary(employeeId || null, range);
@@ -83,13 +96,17 @@ export function Analytics() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-navy-950">Analytics</h1>
-          <p className="text-sm text-slate-500">Insights from every transaction in the selected dates</p>
+          <p className="text-sm text-slate-500">
+            {seesEveryone
+              ? 'Insights from every transaction in the selected dates'
+              : 'Your own sales in the selected dates — ask an admin for clinic-wide figures'}
+          </p>
         </div>
         <DateRangePicker value={range} onChange={setRange} size="compact" />
       </div>
 
       <Card>
-        <CardHeader title="Income over time" subtitle={rangeLabel} />
+        <CardHeader title={seesEveryone ? 'Income over time' : 'Your income over time'} subtitle={rangeLabel} />
         <div className="h-72 px-3 py-4">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={incomeOverTime} margin={{ left: 8, right: 16 }}>
@@ -105,7 +122,7 @@ export function Analytics() {
 
       <Card>
         <CardHeader
-          title="Revenue by service"
+          title={seesEveryone ? 'Revenue by service' : 'Your revenue by service'}
           subtitle={`Clinic services vs. pet shop products — ${rangeLabel}`}
           action={
             <TabSwitch
@@ -120,7 +137,15 @@ export function Analytics() {
         />
         <div className="grid grid-cols-1 gap-4 px-5 py-4 sm:grid-cols-[200px_1fr]">
           <StatTile
-            label={revenueView === 'service' ? 'Clinic services revenue' : 'Pet shop revenue'}
+            label={
+              seesEveryone
+                ? revenueView === 'service'
+                  ? 'Clinic services revenue'
+                  : 'Pet shop revenue'
+                : revenueView === 'service'
+                  ? 'Your clinic services'
+                  : 'Your pet shop sales'
+            }
             value={formatCurrency(revenueSplit?.total ?? 0)}
             tone="gold"
             hint={revenueView === 'service' ? 'Sonar, shower, grooming & more' : 'Food, accessories, medicine & more'}
@@ -143,9 +168,12 @@ export function Analytics() {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      <div className={`grid grid-cols-1 gap-5 ${seesEveryone ? 'xl:grid-cols-2' : ''}`}>
         <Card>
-          <CardHeader title="Best sellers" subtitle={`By revenue · ${rangeLabel}`} />
+          <CardHeader
+            title={seesEveryone ? 'Best sellers' : 'Your best sellers'}
+            subtitle={`By revenue · ${rangeLabel}`}
+          />
           <div className="h-80 px-3 py-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={bestSellers} layout="vertical" margin={{ left: 24, right: 16 }}>
@@ -159,24 +187,26 @@ export function Analytics() {
           </div>
         </Card>
 
-        <Card>
-          <CardHeader title="Revenue by employee" subtitle={rangeLabel} />
-          <div className="h-80 px-3 py-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueByEmployee} margin={{ left: 8, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f6" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `${v / 100000}k`} />
-                <Tooltip formatter={(v) => formatCurrency(Number(v))} />
-                <Bar dataKey="revenue" name="Revenue" fill="#101c4d" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+        {seesEveryone && (
+          <Card>
+            <CardHeader title="Revenue by employee" subtitle={rangeLabel} />
+            <div className="h-80 px-3 py-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={revenueByEmployee} margin={{ left: 8, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eef0f6" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `${v / 100000}k`} />
+                  <Tooltip formatter={(v) => formatCurrency(Number(v))} />
+                  <Bar dataKey="revenue" name="Revenue" fill="#101c4d" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        )}
       </div>
 
       <Card>
-        <CardHeader title="Revenue by category" subtitle={rangeLabel} />
+        <CardHeader title={seesEveryone ? 'Revenue by category' : 'Your revenue by category'} subtitle={rangeLabel} />
         <div className="h-80 px-3 py-4">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
@@ -194,16 +224,18 @@ export function Analytics() {
 
       <Card>
         <CardHeader
-          title="Employee summary"
+          title={seesEveryone ? 'Employee summary' : 'Your activity'}
           subtitle={`Most recent activity · ${rangeLabel}`}
           action={
-            <Select value={employeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} className="w-52">
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </Select>
+            seesEveryone ? (
+              <Select value={employeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} className="w-52">
+                {roster.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </Select>
+            ) : undefined
           }
         />
         {employeeSummary && (

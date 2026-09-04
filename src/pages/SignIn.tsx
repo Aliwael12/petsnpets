@@ -6,9 +6,10 @@ import { ApiError } from '../api/client';
 import { Badge, Button, Input, Modal } from '../components/ui';
 import { LogoLockup } from '../components/Logo';
 import type { Employee } from '../types';
-import { Stethoscope, HeartPulse, Receipt } from 'lucide-react';
+import { Stethoscope, HeartPulse, Receipt, ShieldCheck } from 'lucide-react';
 
 const roleIcon: Record<string, React.ReactNode> = {
+  admin: <ShieldCheck size={20} />,
   doctor: <Stethoscope size={20} />,
   nurse: <HeartPulse size={20} />,
   cashier: <Receipt size={20} />,

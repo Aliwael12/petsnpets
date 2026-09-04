@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPi
 import { EmployeesService } from './employees.service';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { Public } from '../auth/public.decorator';
-import { Roles } from '../auth/roles.decorator';
+import { Permissions } from '../auth/permissions.decorator';
 import { CurrentActor } from '../auth/actor.decorator';
 import type { Actor } from '../auth/auth.types';
 import {
@@ -26,25 +26,25 @@ export class EmployeesController {
   }
 
   @Get()
-  @Roles('doctor')
+  @Permissions('employees:manage')
   list() {
     return this.employees.list();
   }
 
   @Post()
-  @Roles('doctor')
+  @Permissions('employees:manage')
   create(@Body(new ZodValidationPipe(createEmployeeSchema)) dto: CreateEmployeeDto, @CurrentActor() actor: Actor) {
     return this.employees.create(dto, actor);
   }
 
   @Patch(':id/toggle-active')
-  @Roles('doctor')
+  @Permissions('employees:manage')
   toggleActive(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.employees.toggleActive(id, actor);
   }
 
   @Patch(':id/role')
-  @Roles('doctor')
+  @Permissions('employees:manage')
   updateRole(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(updateEmployeeRoleSchema)) dto: UpdateEmployeeRoleDto,
@@ -54,7 +54,7 @@ export class EmployeesController {
   }
 
   @Patch(':id/features')
-  @Roles('doctor')
+  @Permissions('employees:manage')
   updateFeatures(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(updateEmployeeFeaturesSchema)) dto: UpdateEmployeeFeaturesDto,
@@ -64,7 +64,7 @@ export class EmployeesController {
   }
 
   @Delete(':id')
-  @Roles('doctor')
+  @Permissions('employees:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     await this.employees.remove(id, actor);

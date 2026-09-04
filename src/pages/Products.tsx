@@ -11,8 +11,8 @@ import { Pencil, Plus, Power, Search } from 'lucide-react';
 const emptyForm = { name: '', brand: '', category: '' as ProductCategory, sku: '', unitPrice: '', stockQuantity: '', lowStockThreshold: '' };
 
 export function Products() {
-  const role = useAuthStore((s) => s.employee?.role);
-  const canEdit = canEditProducts(role);
+  const employee = useAuthStore((s) => s.employee);
+  const canEdit = canEditProducts(employee);
   const { data: categories = [] } = useCategories();
   // Deactivated categories still have to appear in the *filter* (existing products may sit
   // in one), but only active ones are offered when creating something new.
@@ -113,7 +113,9 @@ export function Products() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-navy-950">Products</h1>
-          <p className="text-sm text-slate-500">{canEdit ? 'Manage inventory' : 'Read-only view of inventory'}</p>
+          <p className="text-sm text-slate-500">
+            {canEdit ? 'Manage inventory' : 'Read-only view of inventory — ask an admin for edit access'}
+          </p>
         </div>
         {canEdit && (
           <Button onClick={openAdd}>

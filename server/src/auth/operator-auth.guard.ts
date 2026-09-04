@@ -60,7 +60,7 @@ export class OperatorAuthGuard implements CanActivate {
       throw new UnauthenticatedError('This employee account is no longer active.');
     }
 
-    req.actor = { id: employee.id, name: employee.name, role: employee.role };
+    req.actor = { id: employee.id, name: employee.name, role: employee.role, permissions: employee.permissions };
     req.operatorToken = payload;
     return true;
   }

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import postgres from 'postgres';
+import { actorWithRole, cleanupSessions } from './lib/session.mjs';
 
 /**
  * Phase 9 — income / expenses / net.
@@ -34,16 +35,15 @@ function check(name, ok, extra) {
   }
 }
 
-/** Looked up by ROLE, not by name — see the same note in test-phase8-settings.mjs. */
-async function loginAsRole(role, pin = '1234') {
-  const [emp] = await sql`select id from employees where role = ${role} and active order by name limit 1`;
-  const res = await fetch(`${BASE}/sessions/pin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employeeId: emp.id, pin, deviceId: 'phase9-test' }),
-  });
-  const body = await res.json();
-  return { token: body.token, id: emp.id };
+/**
+ * The privileged actor is the ADMIN now, not a doctor: the money endpoints moved behind the
+ * financials:read permission, which only an admin holds without an explicit grant.
+ *
+ * Sessions are minted rather than PIN-logged — see scripts/lib/session.mjs for why.
+ */
+async function loginAsRole(role) {
+  const actor = await actorWithRole(sql, role, 'phase9-test');
+  return actor ?? { token: null, id: null };
 }
 
 async function get(path, token) {
@@ -72,11 +72,11 @@ function checkWindow(label, w) {
 
 async function main() {
   console.log('\nPhase 9 — income, expenses and net\n');
-  const doctor = await loginAsRole('doctor');
+  const admin = await loginAsRole('admin');
   const cashier = await loginAsRole('cashier');
 
-  if (!doctor.token) {
-    console.error('Could not sign in as a doctor — is the API running, and is the PIN still 1234?');
+  if (!admin.token) {
+    console.error('No active admin on this database — has the promote_founding_admin migration run?');
     process.exit(1);
   }
 
@@ -95,7 +95,7 @@ async function main() {
   }
 
   // --- the invariants, on the untouched books -------------------------------------------
-  const before = (await get('/analytics/financial-summary', doctor.token)).body;
+  const before = (await get('/analytics/financial-summary', admin.token)).body;
   check(
     'summary returns a range, a month and an all-time window',
     !!before?.range && !!before?.month && !!before?.allTime,
@@ -120,15 +120,15 @@ async function main() {
   // --- validation -----------------------------------------------------------------------
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
   {
-    const res = await post('/expenses', doctor.token, { category: 'rent', description: 'x', amount: -500, paymentMethod: 'cash', paidOn: today }, true);
+    const res = await post('/expenses', admin.token, { category: 'rent', description: 'x', amount: -500, paymentMethod: 'cash', paidOn: today }, true);
     check('a negative expense is rejected (it would be an income backdoor)', res.status === 400, res.status);
   }
   {
-    const res = await post('/expenses', doctor.token, { category: 'stock', description: 'x', amount: 500, paymentMethod: 'cash', paidOn: today }, true);
+    const res = await post('/expenses', admin.token, { category: 'stock', description: 'x', amount: 500, paymentMethod: 'cash', paidOn: today }, true);
     check('there is no "stock" expense category (that would double-count supplier orders)', res.status === 400, res.status);
   }
   {
-    const res = await post('/expenses', doctor.token, { category: 'rent', description: 'x', amount: 500, paymentMethod: 'bitcoin', paidOn: today }, true);
+    const res = await post('/expenses', admin.token, { category: 'rent', description: 'x', amount: 500, paymentMethod: 'bitcoin', paidOn: today }, true);
     check('an unknown payment method is rejected', res.status === 400, res.status);
   }
 
@@ -136,7 +136,7 @@ async function main() {
   const AMOUNT = 76_543; // piastres — an odd number, so a rounding bug can't hide in it
   const created = await post(
     '/expenses',
-    doctor.token,
+    admin.token,
     {
       category: 'utilities',
       description: 'Phase 9 verification entry',
@@ -150,7 +150,7 @@ async function main() {
   );
   check('a doctor can record an expense', created.status === 201, created.body);
 
-  const after = (await get('/analytics/financial-summary', doctor.token)).body;
+  const after = (await get('/analytics/financial-summary', admin.token)).body;
   checkWindow('month (after recording)', after.month);
   checkWindow('all time (after recording)', after.allTime);
   check(
@@ -178,7 +178,7 @@ async function main() {
   {
     const res = await fetch(`${BASE}/expenses/${created.body.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${doctor.token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.token}` },
       body: JSON.stringify({ amount: 1, paidOn: '2020-01-01' }),
     });
     const body = await res.json().catch(() => null);
@@ -191,10 +191,10 @@ async function main() {
 
   // --- voiding puts every figure back ----------------------------------------------------
   {
-    const res = await post(`/expenses/${created.body.id}/void`, doctor.token, { reason: 'Phase 9 verification — not a real payment' });
+    const res = await post(`/expenses/${created.body.id}/void`, admin.token, { reason: 'Phase 9 verification — not a real payment' });
     check('a doctor can void an expense', res.status === 201 || res.status === 200, res.status);
   }
-  const restored = (await get('/analytics/financial-summary', doctor.token)).body;
+  const restored = (await get('/analytics/financial-summary', admin.token)).body;
   check('voiding removes the expense from operating costs', restored.month.expenses.operating === before.month.expenses.operating, {
     before: before.month.expenses.operating,
     after: restored.month.expenses.operating,
@@ -205,32 +205,34 @@ async function main() {
   });
   check(
     'a voided expense is hidden from the list by default',
-    !(await get('/expenses', doctor.token)).body.some((e) => e.id === created.body.id),
+    !(await get('/expenses', admin.token)).body.some((e) => e.id === created.body.id),
   );
   check(
     'a voided expense is still retrievable for audit',
-    (await get('/expenses?includeVoided=true', doctor.token)).body.some((e) => e.id === created.body.id),
+    (await get('/expenses?includeVoided=true', admin.token)).body.some((e) => e.id === created.body.id),
   );
   {
-    const res = await post(`/expenses/${created.body.id}/void`, doctor.token, { reason: 'again' });
+    const res = await post(`/expenses/${created.body.id}/void`, admin.token, { reason: 'again' });
     check('an already-voided expense cannot be voided twice', res.status === 400, res.status);
   }
   {
     const res = await fetch(`${BASE}/expenses/${created.body.id}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${doctor.token}` },
+      headers: { Authorization: `Bearer ${admin.token}` },
     });
     check('there is no hard-delete route for expenses', res.status === 404, res.status);
   }
   checkWindow('month (after voiding)', restored.month);
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
+  await cleanupSessions(sql, 'phase9-test');
   await sql.end();
   process.exit(fail === 0 ? 0 : 1);
 }
 
 main().catch(async (err) => {
   console.error(err);
+  await cleanupSessions(sql, 'phase9-test');
   await sql.end();
   process.exit(1);
 });

@@ -2,7 +2,36 @@
 // integer piastres, matching the database exactly — see formatCurrency in components/ui.tsx
 // for the one place that divides by 100 for display.
 
-export type Role = 'doctor' | 'nurse' | 'cashier';
+/** Ordered most- to least-privileged. Admin is the clinic owner and the only role that can
+ *  grant anything; every other role starts with nothing and is given capabilities one at a
+ *  time. Mirrors server/src/db/schema/enums.ts. */
+export type Role = 'admin' | 'doctor' | 'nurse' | 'cashier';
+
+/** Server-ENFORCED capabilities, mirroring server/src/employees/permissions.ts. Distinct
+ *  from `enabledFeatures`, which only decides which nav tabs are drawn. */
+export const ALL_PERMISSIONS = [
+  'products:write',
+  'categories:manage',
+  'employees:manage',
+  'analytics:all',
+  'financials:read',
+] as const;
+export type Permission = (typeof ALL_PERMISSIONS)[number];
+
+export const PERMISSION_LABELS: Record<Permission, { label: string; detail: string }> = {
+  'products:write': { label: 'Add & edit products', detail: 'Otherwise the catalog is read-only' },
+  'categories:manage': { label: 'Manage categories', detail: 'Add, rename or remove product categories' },
+  'employees:manage': { label: 'Manage employees', detail: 'Can also grant these same permissions to others' },
+  'analytics:all': { label: 'Clinic-wide analytics', detail: 'Otherwise they only see their own sales' },
+  'financials:read': { label: 'Money & expenses', detail: 'Income, expenses, net and the salary ledger' },
+};
+
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: 'Admin',
+  doctor: 'Doctor',
+  nurse: 'Nurse',
+  cashier: 'Cashier',
+};
 
 export interface Employee {
   id: string;
@@ -10,6 +39,7 @@ export interface Employee {
   role: Role;
   active?: boolean;
   enabledFeatures?: string[];
+  permissions?: string[];
   createdAt?: string;
 }
 

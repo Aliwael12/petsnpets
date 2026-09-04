@@ -23,6 +23,8 @@ export function CardHeader({ title, subtitle, action }: { title: string; subtitl
 }
 
 const badgeStyles: Record<string, string> = {
+  // Gold reads as the senior role against the navy the rest of the chrome uses.
+  admin: 'bg-gold-500 text-navy-950 ring-1 ring-inset ring-navy-900/20',
   doctor: 'bg-navy-800 text-white',
   nurse: 'bg-gold-500 text-navy-950',
   cashier: 'bg-slate-200 text-slate-700',

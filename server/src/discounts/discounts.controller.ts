@@ -21,13 +21,13 @@ export class DiscountsController {
   }
 
   @Post()
-  @Roles('doctor')
+  @Roles('admin')
   create(@Body(new ZodValidationPipe(createDiscountSchema)) dto: CreateDiscountDto, @CurrentActor() actor: Actor) {
     return this.discounts.create(dto, actor);
   }
 
   @Delete(':id')
-  @Roles('doctor')
+  @Roles('admin')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revoke(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     await this.discounts.revoke(id, actor);

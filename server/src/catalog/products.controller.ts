@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ProductsService } from './products.service';
+import { Permissions } from '../auth/permissions.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
-import { Roles } from '../auth/roles.decorator';
 import { CurrentActor } from '../auth/actor.decorator';
 import type { Actor } from '../auth/auth.types';
 import {
@@ -40,13 +40,13 @@ export class ProductsController {
   }
 
   @Post()
-  @Roles('doctor')
+  @Permissions('products:write')
   create(@Body(new ZodValidationPipe(createProductSchema)) dto: CreateProductDto, @CurrentActor() actor: Actor) {
     return this.products.create(dto, actor);
   }
 
   @Patch(':id')
-  @Roles('doctor')
+  @Permissions('products:write')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(updateProductSchema)) dto: UpdateProductDto,

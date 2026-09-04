@@ -52,7 +52,7 @@ export class AnalyticsService {
    * one-pixel daily ones. Every fact stream is pre-aggregated per day BEFORE joining, so a
    * day with 3 sales and 2 refunds cannot fan out into 6 rows.
    */
-  async revenueTimeseries(q: { days?: number; from?: string; to?: string }) {
+  async revenueTimeseries(q: { days?: number; from?: string; to?: string }, scopeToEmployeeId: string | null = null) {
     const from = q.from ?? null;
     const to = q.to ?? null;
     // Opt-in, not defaulted: a defaulted `days` would quietly govern the cleared-range
@@ -127,6 +127,7 @@ export class AnalyticsService {
         from transactions t, unit
         where t.created_at >= (unit.d_from::timestamp at time zone ${this.tz})
           and t.created_at <  ((unit.d_to + 1)::timestamp at time zone ${this.tz})
+          ${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
         group by 1
       ),
       rf as (
@@ -134,6 +135,7 @@ export class AnalyticsService {
         from refunds r, unit
         where r.created_at >= (unit.d_from::timestamp at time zone ${this.tz})
           and r.created_at <  ((unit.d_to + 1)::timestamp at time zone ${this.tz})
+          ${this.scoped(rawSql`r.refunded_by`, scopeToEmployeeId)}
         group by 1
       ),
       so as (
@@ -141,12 +143,16 @@ export class AnalyticsService {
         from supplier_orders o, unit
         where o.received_at >= (unit.d_from::timestamp at time zone ${this.tz})
           and o.received_at <  ((unit.d_to + 1)::timestamp at time zone ${this.tz})
+          -- Shipments and running costs belong to the clinic, not to any one seller, so a
+          -- self-scoped caller sees none of them rather than an invented personal share.
+          ${this.clinicWideOnly(scopeToEmployeeId)}
         group by 1
       ),
       ex as (
         select e.paid_on as d, sum(e.amount)::bigint as amt
         from expenses e, unit
         where e.voided_at is null and e.paid_on >= unit.d_from and e.paid_on <= unit.d_to
+          ${this.clinicWideOnly(scopeToEmployeeId)}
         group by 1
       )
       select
@@ -177,7 +183,7 @@ export class AnalyticsService {
     }));
   }
 
-  async bestSellers(range: DayRange, limit = 8) {
+  async bestSellers(range: DayRange, scopeToEmployeeId: string | null = null, limit = 8) {
     const rows = await this.db.execute<{ id: string; name: string; quantity: number; revenue: string | number }>(rawSql`
       select p.id, p.name,
              sum(ti.quantity)::int as quantity,
@@ -188,7 +194,7 @@ export class AnalyticsService {
       -- and cannot change the unfiltered numbers.
       join transactions t on t.id = ti.transaction_id
       join products p on p.id = ti.product_id
-      where true ${this.ts(rawSql`t.created_at`, range)}
+      where true ${this.ts(rawSql`t.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
       group by p.id, p.name
       order by revenue desc
       limit ${limit}
@@ -210,13 +216,13 @@ export class AnalyticsService {
     return rows.map((r) => ({ ...r, revenue: num(r.revenue) }));
   }
 
-  async revenueByCategory(range: DayRange) {
+  async revenueByCategory(range: DayRange, scopeToEmployeeId: string | null = null) {
     const rows = await this.db.execute<{ category: string; value: string | number }>(rawSql`
       select p.category, sum(ti.quantity * ti.unit_price)::bigint as value
       from transaction_items ti
       join transactions t on t.id = ti.transaction_id
       join products p on p.id = ti.product_id
-      where true ${this.ts(rawSql`t.created_at`, range)}
+      where true ${this.ts(rawSql`t.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
       group by p.category
     `);
     return rows.map((r) => ({ ...r, value: num(r.value) }));
@@ -224,14 +230,14 @@ export class AnalyticsService {
 
   /** "Clinic services" vs. "pet shop" — the split is purely `products.category = 'service'`
    * vs. everything else, matching how catalog.products.service.dto derives `kind`. */
-  async revenueSplit(kind: 'service' | 'shop', range: DayRange) {
+  async revenueSplit(kind: 'service' | 'shop', range: DayRange, scopeToEmployeeId: string | null = null) {
     const isService = kind === 'service';
     const raw = await this.db.execute<{ id: string; name: string; revenue: string | number }>(rawSql`
       select p.id, p.name, sum(ti.quantity * ti.unit_price)::bigint as revenue
       from transaction_items ti
       join transactions t on t.id = ti.transaction_id
       join products p on p.id = ti.product_id
-      where (p.category = 'service') = ${isService} ${this.ts(rawSql`t.created_at`, range)}
+      where (p.category = 'service') = ${isService} ${this.ts(rawSql`t.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
       group by p.id, p.name
       order by revenue desc
     `);
@@ -463,6 +469,25 @@ export class AnalyticsService {
   /** The same window against a plain DATE column (expenses.paid_on). */
   private dt(col: SQLWrapper, r: DayRange): SQL {
     return andClause(dateInRange(col, r));
+  }
+
+  /**
+   * ` and <col> = <employee>` when the caller may only see their own sales, or nothing at
+   * all when they may see the clinic's.
+   *
+   * Applied in SQL rather than by filtering a clinic-wide result afterwards: the wider
+   * figure is then never computed, so it cannot leak through a stray field, a total, or a
+   * row count.
+   */
+  private scoped(col: SQLWrapper, employeeId: string | null): SQL {
+    return employeeId ? rawSql` and ${col} = ${employeeId}` : rawSql.empty();
+  }
+
+  /** Drops a whole fact stream out of a self-scoped result. Rendered as a literal
+   *  `and false` rather than a bound boolean parameter, which Postgres would have to infer
+   *  a type for in bare `and $1` position. */
+  private clinicWideOnly(employeeId: string | null): SQL {
+    return employeeId === null ? rawSql.empty() : rawSql` and false`;
   }
 
   private async resolveMonthBounds(year?: number, month?: number) {

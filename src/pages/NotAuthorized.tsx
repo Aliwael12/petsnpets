@@ -6,7 +6,7 @@ export function NotAuthorized() {
       <ShieldAlert className="text-gold-600" size={36} />
       <h1 className="text-lg font-semibold text-navy-950">You don&apos;t have access to this page</h1>
       <p className="max-w-sm text-sm text-slate-500">
-        Ask a doctor to enable this tab for you from the Employees page.
+        Ask an admin to give you access from the Employees page.
       </p>
     </div>
   );

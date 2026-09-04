@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
-import { canManageDiscounts, canViewFinancials } from '../lib/permissions';
+import { canManageDiscounts, canViewAllAnalytics, canViewFinancials } from '../lib/permissions';
 import { useProducts } from '../api/catalog';
 import { useSales } from '../api/sales';
 import { useClients } from '../api/clients';
@@ -32,10 +32,14 @@ const emptyDiscountForm = { clientId: '', kind: 'percent' as DiscountKind, value
 export function Dashboard() {
   const employee = useAuthStore((s) => s.employee);
   const canDiscount = canManageDiscounts(employee?.role);
-  const canSeeMoney = canViewFinancials(employee?.role);
+  const canSeeMoney = canViewFinancials(employee);
+  const seesEveryone = canViewAllAnalytics(employee);
 
   const { data: products = [] } = useProducts({ activeOnly: true });
-  const { data: sales = [] } = useSales({ sinceDays: 2 });
+  // Without clinic-wide analytics this tile counts only what you rang up yourself — the
+  // filter is pushed to the API rather than applied here, so the clinic-wide figure is
+  // never fetched by someone who isn't allowed to see it.
+  const { data: sales = [] } = useSales({ sinceDays: 2, ...(seesEveryone ? {} : { soldBy: employee?.id }) });
   const { data: clients = [] } = useClients();
   const { data: discounts = [] } = useDiscounts();
   const createDiscount = useCreateDiscount();
@@ -102,7 +106,12 @@ export function Dashboard() {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatTile label="Today's sales" value={formatCurrency(todaysRevenue)} hint={`${todaysSales.length} transactions`} tone="gold" />
+        <StatTile
+          label={seesEveryone ? "Today's sales" : 'Your sales today'}
+          value={formatCurrency(todaysRevenue)}
+          hint={`${todaysSales.length} transaction${todaysSales.length === 1 ? '' : 's'}`}
+          tone="gold"
+        />
         <StatTile label="Products low on stock" value={String(lowStock.length)} tone={lowStock.length ? 'warn' : 'default'} />
         <StatTile label="Total products" value={String(products.length)} />
       </div>
@@ -159,7 +168,10 @@ export function Dashboard() {
       )}
 
       <Card>
-        <CardHeader title="Recent transactions" subtitle="Latest sales across the store" />
+        <CardHeader
+          title="Recent transactions"
+          subtitle={seesEveryone ? 'Latest sales across the store' : 'Your most recent sales'}
+        />
         {recent.length === 0 ? (
           <EmptyState title="No transactions yet" />
         ) : (

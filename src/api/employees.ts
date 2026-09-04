@@ -1,9 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { Employee, Role } from '../types';
+import type { Employee, Permission, Role } from '../types';
 
-export function useEmployees() {
-  return useQuery({ queryKey: ['employees', 'all'], queryFn: () => api.get<Employee[]>('/employees') });
+/** The roster is behind employees:manage. Pass `enabled: false` anywhere it is merely
+ *  nice-to-have, so a page doesn't fire a request that can only come back 403. */
+export function useEmployees(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ['employees', 'all'],
+    queryFn: () => api.get<Employee[]>('/employees'),
+    enabled: options.enabled ?? true,
+  });
 }
 
 export function useCreateEmployee() {
@@ -39,11 +45,12 @@ export function useUpdateEmployeeRole() {
   });
 }
 
+/** Tabs and permission grants save together — one screen, one request. */
 export function useUpdateEmployeeFeatures() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, enabledFeatures }: { id: string; enabledFeatures: string[] }) =>
-      api.patch<Employee>(`/employees/${id}/features`, { enabledFeatures }),
+    mutationFn: ({ id, enabledFeatures, permissions }: { id: string; enabledFeatures: string[]; permissions?: Permission[] }) =>
+      api.patch<Employee>(`/employees/${id}/features`, { enabledFeatures, permissions }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['employees'] }),
   });
 }

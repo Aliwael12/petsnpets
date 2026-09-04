@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import postgres from 'postgres';
+import { actorWithRole, cleanupSessions } from './lib/session.mjs';
 
 /**
  * Phase 10 — the custom date range.
@@ -20,6 +21,7 @@ const sql = postgres(process.env.DATABASE_URL ?? 'postgresql://postgres:postgres
 
 let pass = 0;
 let fail = 0;
+let skipped = 0;
 function check(name, ok, extra) {
   if (ok) {
     pass++;
@@ -30,16 +32,15 @@ function check(name, ok, extra) {
   }
 }
 
-/** Looked up by ROLE, not by name — see the same note in test-phase8-settings.mjs. */
-async function loginAsRole(role, pin = '1234') {
-  const [emp] = await sql`select id from employees where role = ${role} and active order by name limit 1`;
-  const res = await fetch(`${BASE}/sessions/pin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employeeId: emp.id, pin, deviceId: 'phase10-test' }),
-  });
-  const body = await res.json();
-  return { token: body.token, id: emp.id };
+/**
+ * The privileged actor is the ADMIN now, not a doctor: the money endpoints moved behind the
+ * financials:read permission, which only an admin holds without an explicit grant.
+ *
+ * Sessions are minted rather than PIN-logged — see scripts/lib/session.mjs for why.
+ */
+async function loginAsRole(role) {
+  const actor = await actorWithRole(sql, role, 'phase10-test');
+  return actor ?? { token: null, id: null };
 }
 
 async function get(path, token) {
@@ -81,15 +82,15 @@ function checkWindow(label, w) {
 
 async function main() {
   console.log('\nPhase 10 — custom date ranges\n');
-  const doctor = await loginAsRole('doctor');
+  const admin = await loginAsRole('admin');
   const cashier = await loginAsRole('cashier');
-  if (!doctor.token) {
-    console.error('Could not sign in as a doctor — is the API running, and is the PIN still 1234?');
+  if (!admin.token) {
+    console.error('No active admin on this database — has the promote_founding_admin migration run?');
     process.exit(1);
   }
 
   const F = async (from, to) => {
-    const res = await get(`/analytics/financial-summary?from=${from}&to=${to}`, doctor.token);
+    const res = await get(`/analytics/financial-summary?from=${from}&to=${to}`, admin.token);
     if (res.status !== 200 || !res.body?.range) {
       throw new Error(`financial-summary ${from}..${to} -> ${res.status} ${JSON.stringify(res.body)}`);
     }
@@ -154,16 +155,16 @@ async function main() {
     const mm = String(cairoMonth).padStart(2, '0');
     const last = new Date(Date.UTC(cairoYear, cairoMonth, 0)).getUTCDate();
     const viaRange = SCALARS(await F(`${cairoYear}-${mm}-01`, `${cairoYear}-${mm}-${last}`));
-    const viaMonth = SCALARS((await get(`/analytics/financial-summary?year=${cairoYear}&month=${cairoMonth}`, doctor.token)).body.month);
+    const viaMonth = SCALARS((await get(`/analytics/financial-summary?year=${cairoYear}&month=${cairoMonth}`, admin.token)).body.month);
     check('from/to over a whole month === the year/month window, field for field', viaRange.every((v, i) => v === viaMonth[i]));
 
-    const dflt = (await get('/analytics/financial-summary', doctor.token)).body;
+    const dflt = (await get('/analytics/financial-summary', admin.token)).body;
     // An unbounded range is all time — the one rule, with no month-shaped exception. This
     // is what makes the UI's Clear button mean what its label says.
     check('with no params, range === allTime field for field', SCALARS(dflt.range).every((v, i) => v === SCALARS(dflt.allTime)[i]));
     check(
       'an explicitly unbounded window is the same as no params at all',
-      SCALARS((await get('/analytics/financial-summary?year=2026&month=1', doctor.token)).body.range).every(
+      SCALARS((await get('/analytics/financial-summary?year=2026&month=1', admin.token)).body.range).every(
         (v, i) => v === SCALARS(dflt.range)[i],
       ),
     );
@@ -178,16 +179,16 @@ async function main() {
   // --- 4. boundaries and validation -----------------------------------------------------
   check(
     'from > to is a 400, NOT a window of zeros',
-    (await get('/analytics/financial-summary?from=2026-09-30&to=2026-09-01', doctor.token)).status === 400,
+    (await get('/analytics/financial-summary?from=2026-09-30&to=2026-09-01', admin.token)).status === 400,
   );
-  check('an impossible date is a 400', (await get('/analytics/financial-summary?from=2026-02-30', doctor.token)).status === 400);
+  check('an impossible date is a 400', (await get('/analytics/financial-summary?from=2026-02-30', admin.token)).status === 400);
   check(
     'the ranged summary is still doctor-only',
     (await get('/analytics/financial-summary?from=2026-09-01&to=2026-09-30', cashier.token)).status === 403,
   );
   check(
     'an inverted range is rejected on the other ranged endpoints too',
-    (await get('/analytics/best-sellers?from=2026-09-30&to=2026-09-01', doctor.token)).status === 400,
+    (await get('/analytics/best-sellers?from=2026-09-30&to=2026-09-01', admin.token)).status === 400,
   );
 
   // --- 5. a real row at a real seam -----------------------------------------------------
@@ -202,7 +203,7 @@ async function main() {
   const beforeB = await F(...B);
   const created = await post(
     '/expenses',
-    doctor.token,
+    admin.token,
     {
       category: 'utilities',
       description: 'Phase 10 seam check',
@@ -230,7 +231,7 @@ async function main() {
     afterA.expenses.byMethod,
   );
   check('net falls by exactly the expense', beforeA.net - afterA.net === AMOUNT);
-  await post(`/expenses/${created.body.id}/void`, doctor.token, { reason: 'Phase 10 verification — not a real payment' });
+  await post(`/expenses/${created.body.id}/void`, admin.token, { reason: 'Phase 10 verification — not a real payment' });
   check('voiding restores every figure in A exactly', SCALARS(await F(...A)).every((v, i) => v === SCALARS(beforeA)[i]));
 
   // --- 6. the backdated expense — the whole point of expenses.paid_on -------------------
@@ -248,7 +249,7 @@ async function main() {
     const wideBefore = await F(paidOn, today);
     const old = await post(
       '/expenses',
-      doctor.token,
+      admin.token,
       { category: 'rent', description: 'Phase 10 backdated check', amount: AMOUNT_OLD, paymentMethod: 'cash', paidOn },
       true,
     );
@@ -270,7 +271,7 @@ async function main() {
       'it is bucketed by paid_on, not by the day it was typed',
       wideAfter.expenses.byMethod.cash - wideBefore.expenses.byMethod.cash === AMOUNT_OLD,
     );
-    await post(`/expenses/${old.body.id}/void`, doctor.token, { reason: 'Phase 10 verification — not a real payment' });
+    await post(`/expenses/${old.body.id}/void`, admin.token, { reason: 'Phase 10 verification — not a real payment' });
     check(
       'voiding the backdated expense restores the wide window exactly',
       SCALARS(await F(paidOn, today)).every((v, i) => v === SCALARS(wideBefore)[i]),
@@ -299,10 +300,10 @@ async function main() {
     const to = `${cairoYear}-${mm}-${lastDay}`;
     const w = await F(from, to);
     const [sales, refs, exps, ords] = await Promise.all([
-      get(`/sales?from=${from}&to=${to}`, doctor.token),
-      get(`/refunds?from=${from}&to=${to}`, doctor.token),
-      get(`/expenses?from=${from}&to=${to}`, doctor.token),
-      get(`/purchasing/supplier-orders?from=${from}&to=${to}`, doctor.token),
+      get(`/sales?from=${from}&to=${to}`, admin.token),
+      get(`/refunds?from=${from}&to=${to}`, admin.token),
+      get(`/expenses?from=${from}&to=${to}`, admin.token),
+      get(`/purchasing/supplier-orders?from=${from}&to=${to}`, admin.token),
     ]);
     check('summary.income.gross === Σ of the sales list for the same dates', sales.body.reduce((s, t) => s + t.total, 0) === w.income.gross, {
       list: sales.body.reduce((s, t) => s + t.total, 0),
@@ -337,7 +338,7 @@ async function main() {
       console.log('  --  - (skipped: no supplier order recorded after 03:00 Cairo on any day)');
     } else {
       const w = await F(row.d, row.d);
-      const ords = (await get(`/purchasing/supplier-orders?from=${row.d}&to=${row.d}`, doctor.token)).body;
+      const ords = (await get(`/purchasing/supplier-orders?from=${row.d}&to=${row.d}`, admin.token)).body;
       check(
         `a shipment received after 03:00 on the LAST day of the window is included (${row.d})`,
         ords.length > 0 && ords.reduce((s, o) => s + o.costTotal, 0) === w.expenses.stock && w.expenses.stock > 0,
@@ -348,8 +349,8 @@ async function main() {
 
   // --- 8c. an UNRANGED timeseries covers everything the unranged cards counted ----------
   {
-    const w = (await get('/analytics/financial-summary', doctor.token)).body.range;
-    const ts = (await get('/analytics/revenue-timeseries', doctor.token)).body;
+    const w = (await get('/analytics/financial-summary', admin.token)).body.range;
+    const ts = (await get('/analytics/revenue-timeseries', admin.token)).body;
     check(
       'with no range at all, the chart spans the same money as the cards',
       ts.reduce((s, p) => s + p.total - p.refunds - p.stock - p.operating, 0) === w.net,
@@ -357,7 +358,7 @@ async function main() {
     );
     check(
       'an unranged employee-summary is all time, not the current month',
-      (await get(`/analytics/employee-summary?employeeId=${doctor.id}`, doctor.token)).body.from === null,
+      (await get(`/analytics/employee-summary?employeeId=${admin.id}`, admin.token)).body.from === null,
     );
   }
 
@@ -366,7 +367,7 @@ async function main() {
     const from = `${cairoYear}-${mm}-01`;
     const to = `${cairoYear}-${mm}-${lastDay}`;
     const w = await F(from, to);
-    const ts = (await get(`/analytics/revenue-timeseries?from=${from}&to=${to}`, doctor.token)).body;
+    const ts = (await get(`/analytics/revenue-timeseries?from=${from}&to=${to}`, admin.token)).body;
     check('a whole month buckets by day', ts.every((p) => p.date === p.endDate) && ts.length === Number(lastDay), ts.length);
     check('Σ(total − refunds) across the bars === income.net', ts.reduce((s, p) => s + p.total - p.refunds, 0) === w.income.net, {
       bars: ts.reduce((s, p) => s + p.total - p.refunds, 0),
@@ -376,42 +377,56 @@ async function main() {
       bars: ts.reduce((s, p) => s + p.stock + p.operating, 0),
       card: w.expenses.total,
     });
-    const wide = (await get('/analytics/revenue-timeseries?from=2020-01-01&to=2026-12-31', doctor.token)).body;
+    const wide = (await get('/analytics/revenue-timeseries?from=2020-01-01&to=2026-12-31', admin.token)).body;
     check('a 7-year window buckets to months, not 2,557 daily rows', wide.length < 100 && wide.some((p) => p.date !== p.endDate), wide.length);
-    const mid = (await get('/analytics/revenue-timeseries?from=2026-01-01&to=2026-09-30', doctor.token)).body;
+    const mid = (await get('/analytics/revenue-timeseries?from=2026-01-01&to=2026-09-30', admin.token)).body;
     check('a 9-month window buckets to weeks', mid.length < 60 && mid.some((p) => p.date !== p.endDate), mid.length);
     // A range starting mid-week must not label its first bucket with a day before it.
-    const partial = (await get('/analytics/revenue-timeseries?from=2026-01-15&to=2026-09-02', doctor.token)).body;
+    const partial = (await get('/analytics/revenue-timeseries?from=2026-01-15&to=2026-09-02', admin.token)).body;
     check('a partial leading bucket is labelled with the first day IN range', partial[0]?.date === '2026-01-15', partial[0]);
     check('…and every bucket stays inside the window', partial.every((p) => p.date >= '2026-01-15' && p.endDate <= '2026-09-02'));
   }
 
   // --- 10. the range actually narrows the other analytics queries -----------------------
   {
-    // A window that ends before any transaction exists must be empty everywhere.
+    // A window that ends before any transaction exists must be empty everywhere. Needs at
+    // least one transaction to anchor "before everything" — on a clinic that hasn't rung up
+    // a sale yet there is no such window, and every list is trivially empty anyway.
     const [{ lo }] = await sql`select min(created_at at time zone 'Africa/Cairo')::date::text as lo from transactions`;
+    if (!lo) {
+      console.log('  --  - the range narrows best-sellers/by-employee/by-category/split  (skipped: no sales on this database)');
+      skipped += 1;
+      await cleanupSessions(sql, 'phase10-test');
+      await sql.end();
+      console.log(`
+${pass} passed, ${fail} failed, ${skipped} skipped (no data to prove them)
+`);
+      process.exit(fail === 0 ? 0 : 1);
+    }
     const before = new Date(`${lo}T00:00:00Z`);
     before.setUTCDate(before.getUTCDate() - 40);
     const emptyFrom = before.toISOString().slice(0, 10);
     const emptyTo = new Date(new Date(`${lo}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
     const qs = `from=${emptyFrom}&to=${emptyTo}`;
 
-    check('best-sellers honours the range', (await get(`/analytics/best-sellers?${qs}`, doctor.token)).body.length === 0);
-    check('revenue-by-employee honours the range', (await get(`/analytics/revenue-by-employee?${qs}`, doctor.token)).body.length === 0);
-    check('revenue-by-category honours the range', (await get(`/analytics/revenue-by-category?${qs}`, doctor.token)).body.length === 0);
-    check('revenue-split honours the range', (await get(`/analytics/revenue-split?kind=shop&${qs}`, doctor.token)).body.total === 0);
+    check('best-sellers honours the range', (await get(`/analytics/best-sellers?${qs}`, admin.token)).body.length === 0);
+    check('revenue-by-employee honours the range', (await get(`/analytics/revenue-by-employee?${qs}`, admin.token)).body.length === 0);
+    check('revenue-by-category honours the range', (await get(`/analytics/revenue-by-category?${qs}`, admin.token)).body.length === 0);
+    check('revenue-split honours the range', (await get(`/analytics/revenue-split?kind=shop&${qs}`, admin.token)).body.total === 0);
 
-    const all = (await get('/analytics/best-sellers', doctor.token)).body;
+    const all = (await get('/analytics/best-sellers', admin.token)).body;
     check('…and an unranged call still returns all time', all.length > 0, all.length);
   }
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
+  await cleanupSessions(sql, 'phase10-test');
   await sql.end();
   process.exit(fail === 0 ? 0 : 1);
 }
 
 main().catch(async (err) => {
   console.error(err);
+  await cleanupSessions(sql, 'phase10-test');
   await sql.end();
   process.exit(1);
 });
