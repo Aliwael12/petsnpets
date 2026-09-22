@@ -48,7 +48,14 @@ export class PetsService {
 
       const [pet] = await tx
         .insert(pets)
-        .values({ name: dto.name, species: dto.species, breed: dto.breed, clientId: clientId! })
+        .values({
+          name: dto.name,
+          species: dto.species,
+          breed: dto.breed,
+          sex: dto.sex,
+          birthDate: dto.birthDate,
+          clientId: clientId!,
+        })
         .returning();
 
       if (dto.phones.length > 0) {

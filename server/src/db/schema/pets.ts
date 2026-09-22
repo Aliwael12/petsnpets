@@ -1,6 +1,6 @@
-import { index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { date, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { speciesEnum } from './enums';
+import { petSexEnum, speciesEnum } from './enums';
 import { clients } from './clients';
 
 export const pets = pgTable(
@@ -10,6 +10,10 @@ export const pets = pgTable(
     name: text('name').notNull(),
     species: speciesEnum('species').notNull(),
     breed: text('breed').notNull().default(''),
+    /** Unknown for most pets — left null rather than guessed. */
+    sex: petSexEnum('sex'),
+    /** Often only a month/year the owner remembered, not an exact date. */
+    birthDate: date('birth_date'),
     clientId: uuid('client_id')
       .notNull()
       .references(() => clients.id, { onDelete: 'restrict' }),

@@ -1,12 +1,15 @@
 import { z } from 'zod';
 
 export const speciesSchema = z.enum(['dog', 'cat', 'bird', 'rabbit', 'other']);
+export const petSexSchema = z.enum(['male', 'female']);
 
 export const createPetSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
     species: speciesSchema,
     breed: z.string().trim().max(200).default(''),
+    sex: petSexSchema.optional(),
+    birthDate: z.iso.date().optional(),
     clientId: z.uuid().optional(),
     newClient: z
       .object({

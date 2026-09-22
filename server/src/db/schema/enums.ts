@@ -15,6 +15,8 @@ export const productKindEnum = pgEnum('product_kind', ['good', 'service']);
 
 export const speciesEnum = pgEnum('species', ['dog', 'cat', 'bird', 'rabbit', 'other']);
 
+export const petSexEnum = pgEnum('pet_sex', ['male', 'female']);
+
 export const logTypeEnum = pgEnum('log_type', ['vaccination', 'shower', 'other']);
 
 export const phoneLabelEnum = pgEnum('phone_label', ['mobile', 'home', 'work', 'other']);

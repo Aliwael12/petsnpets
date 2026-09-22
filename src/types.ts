@@ -93,6 +93,7 @@ export interface Client {
 }
 
 export type Species = 'dog' | 'cat' | 'bird' | 'rabbit' | 'other';
+export type PetSex = 'male' | 'female';
 
 export interface PetPhone {
   id: string;
@@ -105,6 +106,8 @@ export interface Pet {
   name: string;
   species: Species;
   breed: string;
+  sex?: PetSex | null;
+  birthDate?: string | null;
   clientId: string;
   createdAt: string;
   client?: Client;

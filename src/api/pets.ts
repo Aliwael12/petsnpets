@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { Pet, Species } from '../types';
+import type { Pet, PetSex, Species } from '../types';
 
 export function usePets(search?: string) {
   const qs = search ? `?search=${encodeURIComponent(search)}` : '';
@@ -19,6 +19,8 @@ export interface CreatePetInput {
   name: string;
   species: Species;
   breed: string;
+  sex?: PetSex;
+  birthDate?: string;
   clientId?: string;
   newClient?: { name: string; phones: string[] };
   phones: string[];

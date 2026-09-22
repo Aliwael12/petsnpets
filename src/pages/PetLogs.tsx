@@ -18,13 +18,21 @@ import {
   formatDate,
   formatDateTime,
 } from '../components/ui';
-import type { LogType, Species } from '../types';
+import type { LogType, PetSex, Species } from '../types';
 import { PawPrint, Plus, Search, UserCircle2 } from 'lucide-react';
 
 const speciesOptions: Species[] = ['dog', 'cat', 'bird', 'rabbit', 'other'];
 const logTypeOptions: LogType[] = ['vaccination', 'shower', 'other'];
 
-const emptyPetForm = { name: '', species: 'dog' as Species, breed: '', clientId: '', phones: [] as string[] };
+const emptyPetForm = {
+  name: '',
+  species: 'dog' as Species,
+  breed: '',
+  sex: '' as '' | PetSex,
+  birthDate: '',
+  clientId: '',
+  phones: [] as string[],
+};
 const emptyNewClientForm = { name: '', phones: [''] as string[] };
 
 export function PetLogs() {
@@ -107,7 +115,15 @@ export function PetLogs() {
         return;
       }
       createPet.mutate(
-        { name: petForm.name.trim(), species: petForm.species, breed: petForm.breed.trim(), newClient: { name, phones: clientPhones }, phones },
+        {
+          name: petForm.name.trim(),
+          species: petForm.species,
+          breed: petForm.breed.trim(),
+          sex: petForm.sex || undefined,
+          birthDate: petForm.birthDate || undefined,
+          newClient: { name, phones: clientPhones },
+          phones,
+        },
         {
           onSuccess: (newPet) => {
             toast.success('Pet added');
@@ -125,7 +141,15 @@ export function PetLogs() {
       return;
     }
     createPet.mutate(
-      { name: petForm.name.trim(), species: petForm.species, breed: petForm.breed.trim(), clientId: petForm.clientId, phones },
+      {
+        name: petForm.name.trim(),
+        species: petForm.species,
+        breed: petForm.breed.trim(),
+        sex: petForm.sex || undefined,
+        birthDate: petForm.birthDate || undefined,
+        clientId: petForm.clientId,
+        phones,
+      },
       {
         onSuccess: (newPet) => {
           toast.success('Pet added');
@@ -191,7 +215,15 @@ export function PetLogs() {
               <>
                 <CardHeader
                   title={selectedPet.name}
-                  subtitle={`${selectedPet.breed} · Owner: ${selectedPet.client?.name ?? 'Unknown'} · ${selectedPet.client?.phones[0]?.phone ?? ''}`}
+                  subtitle={[
+                    selectedPet.breed,
+                    selectedPet.sex ? (selectedPet.sex === 'male' ? 'Male' : 'Female') : null,
+                    selectedPet.birthDate ? `Born ${formatDate(selectedPet.birthDate)}` : null,
+                    `Owner: ${selectedPet.client?.name ?? 'Unknown'}`,
+                    selectedPet.client?.phones[0]?.phone ?? '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                   action={
                     <div className="flex gap-2">
                       {selectedPet.client && (
@@ -294,6 +326,18 @@ export function PetLogs() {
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">Breed</label>
                 <Input value={petForm.breed} onChange={(e) => setPetForm({ ...petForm, breed: e.target.value })} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Sex (optional)</label>
+                <Select value={petForm.sex} onChange={(e) => setPetForm({ ...petForm, sex: e.target.value as '' | PetSex })}>
+                  <option value="">Unknown</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Birth date (optional)</label>
+                <Input type="date" value={petForm.birthDate} onChange={(e) => setPetForm({ ...petForm, birthDate: e.target.value })} />
               </div>
             </div>
 
