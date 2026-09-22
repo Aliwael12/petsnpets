@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { PaymentMethod, Supplier, SupplierBalance, SupplierOrder } from '../types';
+import type { PaymentMethod, Supplier, SupplierBalance, SupplierOrder, SupplierPayment } from '../types';
 
 export function useSuppliers() {
   return useQuery({ queryKey: ['suppliers'], queryFn: () => api.get<Supplier[]>('/purchasing/suppliers') });
@@ -77,6 +77,25 @@ export function useSupplierBalances() {
   });
 }
 
+export interface SupplierPaymentFilters {
+  supplierId?: string;
+  /** Inclusive Cairo calendar days (YYYY-MM-DD) on paid_at. */
+  from?: string | null;
+  to?: string | null;
+}
+
+export function useSupplierPayments(filters: SupplierPaymentFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.supplierId) params.set('supplierId', filters.supplierId);
+  if (filters.from) params.set('from', filters.from);
+  if (filters.to) params.set('to', filters.to);
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ['supplier-payments', filters],
+    queryFn: () => api.get<SupplierPayment[]>(`/purchasing/supplier-payments${qs ? `?${qs}` : ''}`),
+  });
+}
+
 export interface CreateSupplierPaymentInput {
   supplierId: string;
   amount: number;
@@ -86,7 +105,10 @@ export interface CreateSupplierPaymentInput {
 export function useSettleSupplierPayment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateSupplierPaymentInput) => api.post('/purchasing/supplier-payments', input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['supplier-balances'] }),
+    mutationFn: (input: CreateSupplierPaymentInput) => api.post<SupplierPayment>('/purchasing/supplier-payments', input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['supplier-balances'] });
+      queryClient.invalidateQueries({ queryKey: ['supplier-payments'] });
+    },
   });
 }

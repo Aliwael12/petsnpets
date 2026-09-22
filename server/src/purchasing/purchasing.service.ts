@@ -15,6 +15,7 @@ import type {
   CreateSupplierOrderDto,
   CreateSupplierPaymentDto,
   ListSupplierOrdersQueryDto,
+  ListSupplierPaymentsQueryDto,
 } from './dto/supplier.dto';
 
 /** Builds a stable SKU for a product first seen on a shipment. Human-readable so it's
@@ -67,6 +68,24 @@ export class PurchasingService {
       with: {
         supplier: { columns: { id: true, name: true } },
         product: { columns: { id: true, name: true, brand: true, category: true } },
+        loggedByEmployee: { columns: { id: true, name: true } },
+      },
+    });
+  }
+
+  /** Same shape of query as listOrders, over supplier_payments instead — the two lists are
+   *  merged into one history log on the frontend. */
+  listPayments(query: ListSupplierPaymentsQueryDto = {}) {
+    const conditions = [
+      query.supplierId ? eq(supplierPayments.supplierId, query.supplierId) : undefined,
+      ...tsInRange(supplierPayments.paidAt, toDayRange(query), this.tz),
+    ].filter((c) => c !== undefined);
+
+    return this.db.query.supplierPayments.findMany({
+      where: conditions.length > 0 ? and(...conditions) : undefined,
+      orderBy: (p, { desc }) => [desc(p.paidAt)],
+      with: {
+        supplier: { columns: { id: true, name: true } },
         loggedByEmployee: { columns: { id: true, name: true } },
       },
     });

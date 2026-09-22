@@ -2,7 +2,14 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useSales } from '../api/sales';
 import { useRefunds } from '../api/refunds';
-import { useCreateSupplierOrder, useSettleSupplierPayment, useSupplierBalances, useSupplierOrders, useSuppliers } from '../api/purchasing';
+import {
+  useCreateSupplierOrder,
+  useSettleSupplierPayment,
+  useSupplierBalances,
+  useSupplierOrders,
+  useSupplierPayments,
+  useSuppliers,
+} from '../api/purchasing';
 import { useCategories, useProducts } from '../api/catalog';
 import { useFinancialSummary, useRevenueTimeseries } from '../api/analytics';
 import { useExpenses } from '../api/expenses';
@@ -38,7 +45,7 @@ import {
   YAxis,
 } from 'recharts';
 import { FileText, Loader2, Plus } from 'lucide-react';
-import { PAYMENT_METHOD_LABELS, EXPENSE_CATEGORY_LABELS, type PaymentMethod } from '../types';
+import { PAYMENT_METHOD_LABELS, EXPENSE_CATEGORY_LABELS, type PaymentMethod, type SupplierOrder, type SupplierPayment } from '../types';
 
 const emptyOrderForm = {
   supplierId: '',
@@ -74,6 +81,7 @@ export function MoneyInOut() {
   // disagree about which rows are in the window.
   const salesQuery = useSales(range);
   const { data: supplierOrders = [] } = useSupplierOrders(range);
+  const { data: supplierPayments = [] } = useSupplierPayments(range);
   const { data: refunds = [] } = useRefunds(range);
   const { data: expenses = [] } = useExpenses(range);
   const { data: timeseries = [] } = useRevenueTimeseries(range);
@@ -103,7 +111,17 @@ export function MoneyInOut() {
   // supplierId, so it keeps showing the whole clinic's figures regardless of what's picked
   // here.
   const filteredOrders = supplierOrders.filter((o) => supplierFilter === 'all' || o.supplierId === supplierFilter);
+  const filteredPayments = supplierPayments.filter((p) => supplierFilter === 'all' || p.supplierId === supplierFilter);
   const supplierFilterName = suppliers.find((s) => s.id === supplierFilter)?.name;
+
+  // One combined, chronological log for the history table below — a settlement is as much
+  // a fact about a supplier relationship as the shipment it's paying down, so it belongs in
+  // the same list rather than a separate one the owner has to cross-reference by hand.
+  type HistoryRow = { key: string; date: string } & ({ kind: 'order'; order: SupplierOrder } | { kind: 'payment'; payment: SupplierPayment });
+  const historyRows: HistoryRow[] = [
+    ...filteredOrders.map((order): HistoryRow => ({ key: `order-${order.id}`, date: order.receivedAt, kind: 'order', order })),
+    ...filteredPayments.map((payment): HistoryRow => ({ key: `payment-${payment.id}`, date: payment.paidAt, kind: 'payment', payment })),
+  ].sort((a, b) => +new Date(b.date) - +new Date(a.date));
 
   // Owing money is a live balance, not a period fact — unlike Income/Expenses it is
   // deliberately NOT filtered by the date range, only by which supplier (or all of them) is
@@ -362,17 +380,20 @@ export function MoneyInOut() {
           title="Supplier order history"
           subtitle={
             supplierFilterName
-              ? `${supplierFilterName} · ${formatCurrency(filteredOrders.reduce((sum, o) => sum + o.costTotal, 0))} in these dates`
+              ? `${supplierFilterName} · ${formatCurrency(filteredOrders.reduce((sum, o) => sum + o.costTotal, 0))} ordered · ${formatCurrency(
+                  filteredPayments.reduce((sum, p) => sum + p.amount, 0),
+                )} paid in these dates`
               : rangeLabel
           }
         />
-        {filteredOrders.length === 0 ? (
-          <EmptyState title="No supplier orders in these dates" />
+        {historyRows.length === 0 ? (
+          <EmptyState title="No supplier orders or payments in these dates" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-5 py-3 font-medium">Type</th>
                   <th className="px-5 py-3 font-medium">Supplier</th>
                   <th className="px-5 py-3 font-medium">Product</th>
                   <th className="px-5 py-3 font-medium">Qty</th>
@@ -380,51 +401,75 @@ export function MoneyInOut() {
                   <th className="px-5 py-3 font-medium">Paid with</th>
                   <th className="px-5 py-3 font-medium">Logged by</th>
                   <th className="px-5 py-3 font-medium">Date</th>
-                  <th className="px-5 py-3 font-medium text-right">Cost</th>
+                  <th className="px-5 py-3 font-medium text-right">Amount</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredOrders
-                  .slice()
-                  .sort((a, b) => +new Date(b.receivedAt) - +new Date(a.receivedAt))
-                  .map((o) => {
-                    const expiryKey = o.expiryDate ? businessDayKey(o.expiryDate) : null;
-                    const expired = expiryKey !== null && expiryKey < todayKey;
-                    const expiringSoon = expiryKey !== null && !expired && expiryKey <= warnKey;
+                {historyRows.map((row) => {
+                  if (row.kind === 'payment') {
+                    const p = row.payment;
                     return (
-                      <tr key={o.id}>
-                        <td className="px-5 py-3 font-medium text-navy-950">{o.supplier?.name ?? 'Unknown'}</td>
-                        <td className="px-5 py-3 text-slate-600">
-                          {o.product?.brand && <span className="text-slate-400">{o.product.brand} · </span>}
-                          {o.product?.name ?? o.productId}
-                        </td>
-                        <td className="px-5 py-3 text-slate-600">{o.quantity}</td>
+                      <tr key={row.key}>
                         <td className="px-5 py-3">
-                          {!o.expiryDate ? (
-                            <span className="text-slate-300">—</span>
-                          ) : expired ? (
-                            <Badge tone="low">Expired {formatDate(o.expiryDate)}</Badge>
-                          ) : expiringSoon ? (
-                            <Badge tone="sale">{formatDate(o.expiryDate)}</Badge>
-                          ) : (
-                            <span className="text-slate-500">{formatDate(o.expiryDate)}</span>
-                          )}
+                          <Badge tone="supplier-payment">Payment</Badge>
                         </td>
+                        <td className="px-5 py-3 font-medium text-navy-950">{p.supplier?.name ?? 'Unknown'}</td>
+                        <td className="px-5 py-3 text-slate-300">—</td>
+                        <td className="px-5 py-3 text-slate-300">—</td>
+                        <td className="px-5 py-3 text-slate-300">—</td>
                         <td className="whitespace-nowrap px-5 py-3 text-slate-600">
-                          {o.paymentMethod ? (
-                            PAYMENT_METHOD_LABELS[o.paymentMethod]
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
+                          {p.paymentMethod ? PAYMENT_METHOD_LABELS[p.paymentMethod] : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="px-5 py-3">
-                          <EmployeeTag name={o.loggedByEmployee?.name ?? 'Unknown'} />
+                          <EmployeeTag name={p.loggedByEmployee?.name ?? 'Unknown'} />
                         </td>
-                        <td className="px-5 py-3 text-slate-500">{formatDate(o.receivedAt)}</td>
-                        <td className="px-5 py-3 text-right font-semibold text-navy-950">{formatCurrency(o.costTotal)}</td>
+                        <td className="px-5 py-3 text-slate-500">{formatDate(p.paidAt)}</td>
+                        <td className="px-5 py-3 text-right font-semibold text-emerald-700">−{formatCurrency(p.amount)}</td>
                       </tr>
                     );
-                  })}
+                  }
+
+                  const o = row.order;
+                  const expiryKey = o.expiryDate ? businessDayKey(o.expiryDate) : null;
+                  const expired = expiryKey !== null && expiryKey < todayKey;
+                  const expiringSoon = expiryKey !== null && !expired && expiryKey <= warnKey;
+                  return (
+                    <tr key={row.key}>
+                      <td className="px-5 py-3">
+                        <Badge tone="supplier-order">Order</Badge>
+                      </td>
+                      <td className="px-5 py-3 font-medium text-navy-950">{o.supplier?.name ?? 'Unknown'}</td>
+                      <td className="px-5 py-3 text-slate-600">
+                        {o.product?.brand && <span className="text-slate-400">{o.product.brand} · </span>}
+                        {o.product?.name ?? o.productId}
+                      </td>
+                      <td className="px-5 py-3 text-slate-600">{o.quantity}</td>
+                      <td className="px-5 py-3">
+                        {!o.expiryDate ? (
+                          <span className="text-slate-300">—</span>
+                        ) : expired ? (
+                          <Badge tone="low">Expired {formatDate(o.expiryDate)}</Badge>
+                        ) : expiringSoon ? (
+                          <Badge tone="sale">{formatDate(o.expiryDate)}</Badge>
+                        ) : (
+                          <span className="text-slate-500">{formatDate(o.expiryDate)}</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3 text-slate-600">
+                        {o.paymentMethod ? (
+                          PAYMENT_METHOD_LABELS[o.paymentMethod]
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3">
+                        <EmployeeTag name={o.loggedByEmployee?.name ?? 'Unknown'} />
+                      </td>
+                      <td className="px-5 py-3 text-slate-500">{formatDate(o.receivedAt)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-navy-950">{formatCurrency(o.costTotal)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

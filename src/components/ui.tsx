@@ -39,6 +39,7 @@ const badgeStyles: Record<string, string> = {
   refund: 'bg-red-100 text-red-700',
   'pet-log': 'bg-teal-100 text-teal-700',
   'supplier-order': 'bg-indigo-100 text-indigo-700',
+  'supplier-payment': 'bg-emerald-100 text-emerald-700',
   discount: 'bg-purple-100 text-purple-700',
   used: 'bg-slate-200 text-slate-500',
 };

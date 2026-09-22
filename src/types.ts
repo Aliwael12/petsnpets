@@ -206,6 +206,17 @@ export interface SupplierOrder {
   loggedByEmployee?: { id: string; name: string };
 }
 
+export interface SupplierPayment {
+  id: string;
+  supplierId: string;
+  amount: number; // piastres
+  paymentMethod?: PaymentMethod | null;
+  loggedBy: string;
+  paidAt: string;
+  supplier?: { id: string; name: string };
+  loggedByEmployee?: { id: string; name: string };
+}
+
 /** A live balance, not a period figure — see PurchasingService.supplierBalances(). */
 export interface SupplierBalance {
   supplierId: string;

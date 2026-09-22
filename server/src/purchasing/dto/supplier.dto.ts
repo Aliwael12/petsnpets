@@ -72,6 +72,16 @@ export const createSupplierPaymentSchema = z.object({
 });
 export type CreateSupplierPaymentDto = z.infer<typeof createSupplierPaymentSchema>;
 
+export const listSupplierPaymentsQuerySchema = z
+  .object({
+    supplierId: z.uuid().optional(),
+    /** Inclusive Cairo calendar days (YYYY-MM-DD) on paid_at — same convention as
+     *  listSupplierOrdersQuerySchema's received_at bounds. */
+    ...dateRangeShape,
+  })
+  .refine(isOrderedRange, ORDERED_RANGE_ISSUE);
+export type ListSupplierPaymentsQueryDto = z.infer<typeof listSupplierPaymentsQuerySchema>;
+
 export const listSupplierOrdersQuerySchema = z
   .object({
     supplierId: z.uuid().optional(),

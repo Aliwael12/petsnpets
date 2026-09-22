@@ -10,10 +10,12 @@ import {
   createSupplierPaymentSchema,
   createSupplierSchema,
   listSupplierOrdersQuerySchema,
+  listSupplierPaymentsQuerySchema,
   type CreateSupplierDto,
   type CreateSupplierOrderDto,
   type CreateSupplierPaymentDto,
   type ListSupplierOrdersQueryDto,
+  type ListSupplierPaymentsQueryDto,
 } from './dto/supplier.dto';
 
 /**
@@ -58,6 +60,12 @@ export class PurchasingController {
   @Permissions('financials:read')
   supplierBalances() {
     return this.purchasing.supplierBalances();
+  }
+
+  @Get('supplier-payments')
+  @Permissions('financials:read')
+  listPayments(@Query(new ZodValidationPipe(listSupplierPaymentsQuerySchema)) query: ListSupplierPaymentsQueryDto) {
+    return this.purchasing.listPayments(query);
   }
 
   @Post('supplier-payments')
