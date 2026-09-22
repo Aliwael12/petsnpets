@@ -96,7 +96,7 @@ export class PurchasingService {
             category: dto.newProduct.category,
             kind: 'good',
             sku: deriveSku(dto.newProduct.brand, dto.newProduct.name),
-            unitPrice: dto.newProduct.unitPrice,
+            unitPrice: dto.newProduct.unitPrice ?? 0,
             stockQuantity: 0,
             lowStockThreshold: dto.newProduct.lowStockThreshold,
           })

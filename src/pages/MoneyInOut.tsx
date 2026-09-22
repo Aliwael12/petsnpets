@@ -144,10 +144,6 @@ export function MoneyInOut() {
         toast.error('Product name and category are required');
         return;
       }
-      if (!form.unitPrice) {
-        toast.error('Set a selling price for the new product');
-        return;
-      }
     } else if (!form.productId) {
       toast.error('Select a product');
       return;
@@ -167,7 +163,7 @@ export function MoneyInOut() {
               brand: form.brand.trim() || undefined,
               category: form.category,
               name: form.productName.trim(),
-              unitPrice: Math.round(Number(form.unitPrice) * 100),
+              unitPrice: form.unitPrice ? Math.round(Number(form.unitPrice) * 100) : undefined,
             }
           : undefined,
         quantity: Number(form.quantity),
@@ -539,16 +535,16 @@ export function MoneyInOut() {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-500">Selling price (EGP)</label>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">Selling price (EGP, optional)</label>
                     <Input
                       type="number"
                       value={form.unitPrice}
                       onChange={(e) => setForm({ ...form, unitPrice: e.target.value })}
-                      placeholder="What you'll sell it for"
+                      placeholder="Leave blank to price it later"
                     />
                     <p className="mt-1 text-xs text-slate-400">
-                      This creates the product in the catalog. Its SKU is generated automatically and can be edited later
-                      from Products.
+                      This creates the product in the catalog. Its SKU is generated automatically. Leaving the price blank
+                      saves it at EGP 0 until someone sets a real price from Products — it won't be ready to sell until then.
                     </p>
                   </div>
                 </div>

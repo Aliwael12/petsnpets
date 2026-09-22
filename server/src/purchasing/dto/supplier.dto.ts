@@ -27,9 +27,10 @@ export const createSupplierOrderSchema = z
         brand: z.string().trim().max(120).optional(),
         category: z.string().trim().min(2).max(40),
         name: z.string().trim().min(1).max(200),
-        /** Unit sale price in piastres. Required because a product can't be sold without
-         * one, and a shipment is often the first time it exists at all. */
-        unitPrice: z.number().int().nonnegative(),
+        /** Unit sale price in piastres. Optional — a shipment is often the first time a
+         * product exists at all, and the price isn't always known yet at receiving time.
+         * Omitted means 0 (not yet priced) until someone sets it from Products. */
+        unitPrice: z.number().int().nonnegative().optional(),
         lowStockThreshold: z.number().int().nonnegative().default(0),
       })
       .optional(),

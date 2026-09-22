@@ -44,7 +44,7 @@ export interface CreateSupplierOrderInput {
     brand?: string;
     category: string;
     name: string;
-    unitPrice: number;
+    unitPrice?: number;
     lowStockThreshold?: number;
   };
   quantity: number;
