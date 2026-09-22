@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
+import { useActiveEmployees } from '../api/auth';
 import { useProducts } from '../api/catalog';
 import { useClients, useCreateClient } from '../api/clients';
 import { useDiscounts } from '../api/discounts';
@@ -8,7 +9,7 @@ import { useCheckout, useSales } from '../api/sales';
 import { useCreateRefund, useRefunds } from '../api/refunds';
 import { openInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
-import { Badge, Button, Card, CardHeader, EmployeeTag, EmptyState, Input, Modal, PhoneListInput, TabSwitch, formatCurrency, formatDateTime } from '../components/ui';
+import { Badge, Button, Card, CardHeader, EmployeeTag, EmptyState, Input, Modal, PhoneListInput, Select, TabSwitch, formatCurrency, formatDateTime } from '../components/ui';
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../types';
 import { Minus, Plus, RotateCcw, Search, ShoppingCart, Trash2, UserPlus, UserRound } from 'lucide-react';
 
@@ -60,6 +61,8 @@ function discountAmountFor(subtotal: number, discount: { kind: 'percent' | 'fixe
 
 export function POS() {
   const employee = useAuthStore((s) => s.employee);
+  const canChooseSoldBy = employee?.role === 'admin' || employee?.role === 'cashier';
+  const { data: activeEmployees = [] } = useActiveEmployees();
   const { data: products = [] } = useProducts({ activeOnly: true });
   const { data: clients = [] } = useClients();
   const { data: sales = [] } = useSales();
@@ -79,6 +82,7 @@ export function POS() {
   const [newClientForm, setNewClientForm] = useState({ name: '', phones: [''] as string[] });
   const [discountId, setDiscountId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
+  const [soldBy, setSoldBy] = useState('');
 
   const { data: availableDiscounts = [] } = useDiscounts({ clientId, availableOnly: true }, { enabled: !!clientId });
 
@@ -155,6 +159,7 @@ export function POS() {
     setClientSearch('');
     setDiscountId('');
     setPaymentMethod('');
+    setSoldBy('');
   };
 
   const selectClient = (id: string) => {
@@ -217,6 +222,7 @@ export function POS() {
         items: cartDetails.map((l) => ({ productId: l.productId, quantity: l.quantity })),
         discountId: selectedDiscount?.id,
         paymentMethod,
+        soldBy: soldBy || undefined,
       },
       {
         onSuccess: async (transaction) => {
@@ -425,6 +431,20 @@ export function POS() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {canChooseSoldBy && (
+                <div className="mt-3">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-500">Sold by</label>
+                  <Select value={soldBy || employee?.id || ''} onChange={(e) => setSoldBy(e.target.value === employee?.id ? '' : e.target.value)}>
+                    {activeEmployees.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.name}
+                        {e.id === employee?.id ? ' (you)' : ''}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
               )}
 

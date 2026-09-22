@@ -16,6 +16,10 @@ export const createSaleSchema = z.object({
   clientId: z.uuid(),
   items: z.array(saleLineSchema).min(1),
   discountId: z.uuid().optional(),
+  /** Who actually made the sale, when that's not whoever is logged in — e.g. a cashier
+   * ringing up a sale on a doctor's behalf. Omitted means "the person checking out".
+   * Only admin/cashier may set this to someone else — see SalesService.executeCheckout. */
+  soldBy: z.uuid().optional(),
   /** Optional at the API even though the POS makes it a required choice: a stale browser tab
    * that hasn't reloaded must not start 400-ing mid-checkout at a live till. Omitted means
    * "not recorded", the same as historical rows. */

@@ -37,6 +37,7 @@ export interface CheckoutInput {
   items: { productId: string; quantity: number }[];
   discountId?: string;
   paymentMethod?: PaymentMethod;
+  soldBy?: string;
 }
 
 export function useCheckout() {

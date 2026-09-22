@@ -4,8 +4,8 @@ import { and, asc, desc, eq, gte, inArray, sql as rawSql } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
-import { clients, discounts, products, transactionItems, transactions, type Product } from '../db/schema';
-import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
+import { clients, discounts, employees, products, transactionItems, transactions, type Product } from '../db/schema';
+import { ForbiddenAppError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
 import { IdempotencyService } from '../common/idempotency/idempotency.service';
 import { InventoryService } from '../inventory/inventory.service';
@@ -95,6 +95,8 @@ export class SalesService {
       if (!client) throw new NotFoundAppError('Client', dto.clientId);
       const customerName = client.name;
 
+      const soldBy = await this.resolveSoldBy(tx, dto.soldBy, actor);
+
       // Discount amount is computed from a plain read here; the atomic claim later (which
       // does its own read under a race-safe UPDATE ... WHERE used_in_transaction_id IS NULL)
       // is what actually enforces single-use — this read only needs to be right often
@@ -115,7 +117,7 @@ export class SalesService {
         .values({
           invoiceYear: year,
           invoiceNo,
-          soldBy: actor.id,
+          soldBy,
           clientId: dto.clientId,
           customerName,
           subtotal,
@@ -163,6 +165,19 @@ export class SalesService {
       const items = await tx.select().from(transactionItems).where(eq(transactionItems.transactionId, txn.id)).orderBy(asc(transactionItems.id));
       return { ...txn, items };
     });
+  }
+
+  /** Only a cashier or admin may ring up a sale on someone else's behalf — a doctor or nurse
+   * checking out always gets attributed to themselves, regardless of what the client sends. */
+  private async resolveSoldBy(tx: Database, requested: string | undefined, actor: Actor): Promise<string> {
+    if (!requested || requested === actor.id) return actor.id;
+    if (actor.role !== 'admin' && actor.role !== 'cashier') {
+      throw new ForbiddenAppError('Only a cashier or admin can attribute a sale to someone else.');
+    }
+    const [target] = await tx.select({ id: employees.id, active: employees.active }).from(employees).where(eq(employees.id, requested)).limit(1);
+    if (!target) throw new NotFoundAppError('Employee', requested);
+    if (!target.active) throw new ValidationAppError('That employee is not active.', { employeeId: requested });
+    return target.id;
   }
 
   /** Gapless, monotonic per year. The row lock implicit in the UPSERT serializes concurrent
