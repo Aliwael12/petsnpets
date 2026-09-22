@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, ilike, inArray, or } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
 import { clientPhones, clients, pets } from '../db/schema';
@@ -16,13 +16,25 @@ export class ClientsService {
   ) {}
 
   async list(query: ListClientsQueryDto) {
-    const all = await this.db.query.clients.findMany({
+    // Filtered in SQL rather than fetched-then-filtered in JS: with a client roster in the
+    // thousands, pulling every client and all of their phones on every keystroke made the
+    // search box feel broken — each request had to round-trip the whole table before it
+    // could even start comparing. The phone-side match runs as its own small scan over
+    // client_phones (far smaller than joining it onto every client) so the name/phone OR
+    // below only needs a plain id list, no join or subquery.
+    let where;
+    if (query.search) {
+      const like = `%${query.search}%`;
+      const phoneMatches = await this.db.selectDistinct({ clientId: clientPhones.clientId }).from(clientPhones).where(ilike(clientPhones.phone, like));
+      const matchingClientIds = phoneMatches.map((p) => p.clientId);
+      where = or(ilike(clients.name, like), matchingClientIds.length > 0 ? inArray(clients.id, matchingClientIds) : undefined);
+    }
+
+    return this.db.query.clients.findMany({
+      where,
       orderBy: (c, { asc }) => [asc(c.name)],
       with: { phones: true, pets: { columns: { id: true } } },
     });
-    if (!query.search) return all;
-    const q = query.search.toLowerCase();
-    return all.filter((c) => c.name.toLowerCase().includes(q) || c.phones.some((p) => p.phone.toLowerCase().includes(q)));
   }
 
   async getOrThrow(id: string) {
