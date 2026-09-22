@@ -77,7 +77,7 @@ export function MoneyInOut() {
   const { data: refunds = [] } = useRefunds(range);
   const { data: expenses = [] } = useExpenses(range);
   const { data: timeseries = [] } = useRevenueTimeseries(range);
-  const summary = useFinancialSummary(range);
+  const summary = useFinancialSummary(range, supplierFilter !== 'all' ? supplierFilter : undefined);
 
   const { data: suppliers = [] } = useSuppliers();
   const { data: categories = [] } = useCategories();
@@ -93,10 +93,10 @@ export function MoneyInOut() {
   const [form, setForm] = useState(emptyOrderForm);
   const [refundPdfPending, setRefundPdfPending] = useState<string | null>(null);
 
-  // The supplier filter is a property of PURCHASES only. It narrows the shipments table and
-  // deliberately leaves the stat tiles alone: "all income minus one supplier's shipments
-  // minus all running costs" is not a fact about anything, and it would make this page and
-  // the dashboard disagree for the same dates.
+  // The supplier filter narrows both the shipments table below AND the Expenses/Net tiles
+  // above (via the supplierId passed into useFinancialSummary) — but never Income, which
+  // has no supplier to attribute a sale to in the first place. The Dashboard never passes
+  // supplierId, so it keeps showing the whole clinic's Net regardless of what's picked here.
   const filteredOrders = supplierOrders.filter((o) => supplierFilter === 'all' || o.supplierId === supplierFilter);
   const supplierFilterName = suppliers.find((s) => s.id === supplierFilter)?.name;
 
@@ -254,18 +254,24 @@ export function MoneyInOut() {
             }
           />
           <StatTile
-            label="Expenses"
+            label={supplierFilterName ? `Expenses · ${supplierFilterName}` : 'Expenses'}
             value={formatCurrency(summary.data.range.expenses.total)}
             tone="expense"
-            hint={`${formatCurrency(summary.data.range.expenses.stock)} stock · ${formatCurrency(
-              summary.data.range.expenses.operating,
-            )} running costs`}
+            hint={
+              supplierFilterName
+                ? `${formatCurrency(summary.data.range.expenses.stock)} from this supplier · ${formatCurrency(
+                    summary.data.range.expenses.operating,
+                  )} running costs`
+                : `${formatCurrency(summary.data.range.expenses.stock)} stock · ${formatCurrency(
+                    summary.data.range.expenses.operating,
+                  )} running costs`
+            }
           />
           <StatTile
             label="Net"
             value={formatCurrency(summary.data.range.net)}
             tone={summary.data.range.net < 0 ? 'warn' : 'gold'}
-            hint="Income minus expenses"
+            hint={supplierFilterName ? `Income minus expenses, stock limited to ${supplierFilterName}` : 'Income minus expenses'}
           />
         </div>
       )}

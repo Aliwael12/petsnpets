@@ -41,6 +41,9 @@ export const financialSummaryQuerySchema = z
   .object({
     year: z.coerce.number().int().min(2000).max(2100).optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
+    /** Narrows the stock side of expenses (and therefore total expenses and net) to one
+     * supplier — income has no supplier to narrow by, so it's always the true total. */
+    supplierId: z.uuid().optional(),
     ...dateRangeShape,
   })
   .refine((v) => (v.year === undefined) === (v.month === undefined), {

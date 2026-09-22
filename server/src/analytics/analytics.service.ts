@@ -333,12 +333,17 @@ export class AnalyticsService {
    * Sales and refunds bucket on created_at in the clinic's timezone; supplier orders on
    * received_at; operating expenses on paid_on, which is already a Cairo calendar date
    * (a receipt's own date, routinely backdated) and so takes date bounds, not instants.
+   *
+   * `supplierId`, when given, narrows every 'stock' stream (and so expenses.total and net)
+   * to that one supplier's shipments. Income is never narrowed by it — a sale has no
+   * supplier to attribute it to, so "this supplier's income" isn't a fact about anything.
    */
   async financialSummary(q: {
     year?: number;
     month?: number;
     from?: string;
     to?: string;
+    supplierId?: string;
   }): Promise<FinancialSummary> {
     const { resolvedYear, resolvedMonth } = await this.resolveMonthBounds(q.year, q.month);
 
@@ -348,6 +353,9 @@ export class AnalyticsService {
     // both dates) unrepresentable, so the card would print "All time" over this month's
     // figures. `month` and `allTime` are unaffected and still answer what they always did.
     const range: DayRange = { from: q.from ?? null, to: q.to ?? null };
+    // Narrows every 'stock' stream below to one supplier — reuses the same helper the
+    // employee-scoping in this file uses, just against supplier_id instead of sold_by.
+    const supplierScope = this.scoped(rawSql`o.supplier_id`, q.supplierId ?? null);
 
     const rows = await this.db.execute<{
       win: 'range' | 'month' | 'all';
@@ -370,7 +378,7 @@ export class AnalyticsService {
         from refunds r where true ${this.ts(rawSql`r.created_at`, range)} group by r.payment_method
       union all
       select 'range', 'stock', o.payment_method::text, sum(o.cost_total)::bigint
-        from supplier_orders o where true ${this.ts(rawSql`o.received_at`, range)} group by o.payment_method
+        from supplier_orders o where true ${this.ts(rawSql`o.received_at`, range)}${supplierScope} group by o.payment_method
       union all
       select 'range', 'operating', e.payment_method::text, sum(e.amount)::bigint
         from expenses e where e.voided_at is null ${this.dt(rawSql`e.paid_on`, range)} group by e.payment_method
@@ -383,7 +391,7 @@ export class AnalyticsService {
         from refunds r, b where r.created_at >= b.ts_start and r.created_at < b.ts_end group by r.payment_method
       union all
       select 'month', 'stock', o.payment_method::text, sum(o.cost_total)::bigint
-        from supplier_orders o, b where o.received_at >= b.ts_start and o.received_at < b.ts_end group by o.payment_method
+        from supplier_orders o, b where o.received_at >= b.ts_start and o.received_at < b.ts_end${supplierScope} group by o.payment_method
       union all
       select 'month', 'operating', e.payment_method::text, sum(e.amount)::bigint
         from expenses e, b
@@ -395,7 +403,7 @@ export class AnalyticsService {
       select 'all', 'refunds', r.payment_method::text, sum(r.total)::bigint from refunds r group by r.payment_method
       union all
       select 'all', 'stock', o.payment_method::text, sum(o.cost_total)::bigint
-        from supplier_orders o group by o.payment_method
+        from supplier_orders o where true${supplierScope} group by o.payment_method
       union all
       select 'all', 'operating', e.payment_method::text, sum(e.amount)::bigint
         from expenses e where e.voided_at is null group by e.payment_method

@@ -68,11 +68,13 @@ export function useRevenueSplit(kind: 'service' | 'shop', range: DayRange) {
 
 /** Income, expenses and net for the selected range, the calendar month and all time, in one
  *  request — the Dashboard cards AND Money in / out's stat tiles both read this, so the two
- *  screens cannot show the owner two different Net figures for the same dates. */
-export function useFinancialSummary(range: DayRange) {
+ *  screens cannot show the owner two different Net figures for the same dates (as long as
+ *  neither passes `supplierId` — the Dashboard never does, so it always sees the unscoped
+ *  whole-clinic figure regardless of what's selected on Money in / out). */
+export function useFinancialSummary(range: DayRange, supplierId?: string) {
   return useQuery({
-    queryKey: ['analytics', 'financial-summary', range.from, range.to],
-    queryFn: () => api.get<FinancialSummary>(`/analytics/financial-summary${rangeQs(range)}`),
+    queryKey: ['analytics', 'financial-summary', range.from, range.to, supplierId ?? null],
+    queryFn: () => api.get<FinancialSummary>(`/analytics/financial-summary${rangeQs(range, supplierId ? { supplierId } : {})}`),
   });
 }
 
