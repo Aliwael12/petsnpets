@@ -8,6 +8,7 @@ export * from './expenses';
 export * from './catalog';
 export * from './suppliers';
 export * from './supplier-orders';
+export * from './supplier-payments';
 export * from './stock-movements';
 export * from './invoice-counters';
 export * from './transactions';

@@ -7,10 +7,12 @@ import { CurrentActor } from '../auth/actor.decorator';
 import type { Actor } from '../auth/auth.types';
 import {
   createSupplierOrderSchema,
+  createSupplierPaymentSchema,
   createSupplierSchema,
   listSupplierOrdersQuerySchema,
   type CreateSupplierDto,
   type CreateSupplierOrderDto,
+  type CreateSupplierPaymentDto,
   type ListSupplierOrdersQueryDto,
 } from './dto/supplier.dto';
 
@@ -48,5 +50,22 @@ export class PurchasingController {
     @CurrentActor() actor: Actor,
   ) {
     return this.purchasing.createOrder(dto, actor);
+  }
+
+  /** Every supplier's running balance — what they've been shipped vs. what's been paid.
+   *  Same access as the order list: it's still a fact about clinic spending. */
+  @Get('supplier-balances')
+  @Permissions('financials:read')
+  supplierBalances() {
+    return this.purchasing.supplierBalances();
+  }
+
+  @Post('supplier-payments')
+  @Roles('admin')
+  createPayment(
+    @Body(new ZodValidationPipe(createSupplierPaymentSchema)) dto: CreateSupplierPaymentDto,
+    @CurrentActor() actor: Actor,
+  ) {
+    return this.purchasing.createPayment(dto, actor);
   }
 }

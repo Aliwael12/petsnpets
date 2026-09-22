@@ -71,6 +71,13 @@
       "when": 1790100837580,
       "tag": "0009_optimal_shiva",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790103136837,
+      "tag": "0010_modern_gauntlet",
+      "breakpoints": true
     }
   ]
 }

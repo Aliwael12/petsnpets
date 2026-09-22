@@ -6,6 +6,7 @@ import { petLogs } from './pet-logs';
 import { products, productCategories } from './catalog';
 import { suppliers } from './suppliers';
 import { supplierOrders } from './supplier-orders';
+import { supplierPayments } from './supplier-payments';
 import { stockMovements } from './stock-movements';
 import { transactions, transactionItems } from './transactions';
 import { refunds, refundItems } from './refunds';
@@ -19,6 +20,7 @@ export const employeesRelations = relations(employees, ({ many }) => ({
   refundsProcessed: many(refunds),
   discountsCreated: many(discounts),
   supplierOrdersLogged: many(supplierOrders),
+  supplierPaymentsLogged: many(supplierPayments),
   stockMovements: many(stockMovements),
 }));
 
@@ -64,6 +66,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
 
 export const suppliersRelations = relations(suppliers, ({ many }) => ({
   orders: many(supplierOrders),
+  payments: many(supplierPayments),
 }));
 
 export const supplierOrdersRelations = relations(supplierOrders, ({ one }) => ({
@@ -71,6 +74,14 @@ export const supplierOrdersRelations = relations(supplierOrders, ({ one }) => ({
   product: one(products, { fields: [supplierOrders.productId], references: [products.id] }),
   loggedByEmployee: one(employees, {
     fields: [supplierOrders.loggedBy],
+    references: [employees.id],
+  }),
+}));
+
+export const supplierPaymentsRelations = relations(supplierPayments, ({ one }) => ({
+  supplier: one(suppliers, { fields: [supplierPayments.supplierId], references: [suppliers.id] }),
+  loggedByEmployee: one(employees, {
+    fields: [supplierPayments.loggedBy],
     references: [employees.id],
   }),
 }));

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useSales } from '../api/sales';
 import { useRefunds } from '../api/refunds';
-import { useCreateSupplierOrder, useSupplierOrders, useSuppliers } from '../api/purchasing';
+import { useCreateSupplierOrder, useSettleSupplierPayment, useSupplierBalances, useSupplierOrders, useSuppliers } from '../api/purchasing';
 import { useCategories, useProducts } from '../api/catalog';
 import { useFinancialSummary, useRevenueTimeseries } from '../api/analytics';
 import { useExpenses } from '../api/expenses';
@@ -82,7 +82,9 @@ export function MoneyInOut() {
   const { data: suppliers = [] } = useSuppliers();
   const { data: categories = [] } = useCategories();
   const { data: products = [] } = useProducts({ activeOnly: false });
+  const { data: supplierBalances = [] } = useSupplierBalances();
   const createSupplierOrder = useCreateSupplierOrder();
+  const settlePayment = useSettleSupplierPayment();
 
   const orderableProducts = products.filter((p) => p.kind !== 'service');
   const stockCategories = categories.filter((c) => c.active && c.kind !== 'service');
@@ -92,13 +94,27 @@ export function MoneyInOut() {
   const [newProductMode, setNewProductMode] = useState(false);
   const [form, setForm] = useState(emptyOrderForm);
   const [refundPdfPending, setRefundPdfPending] = useState<string | null>(null);
+  const [settleModalOpen, setSettleModalOpen] = useState(false);
+  const [settleForm, setSettleForm] = useState({ supplierId: '', amount: '', paymentMethod: '' as PaymentMethod | '' });
 
-  // The supplier filter narrows both the shipments table below AND the Expenses/Net tiles
-  // above (via the supplierId passed into useFinancialSummary) — but never Income, which
+  // The supplier filter narrows the shipments table below, the Expenses tile above (via the
+  // supplierId passed into useFinancialSummary), and the Due tile — but never Income, which
   // has no supplier to attribute a sale to in the first place. The Dashboard never passes
-  // supplierId, so it keeps showing the whole clinic's Net regardless of what's picked here.
+  // supplierId, so it keeps showing the whole clinic's figures regardless of what's picked
+  // here.
   const filteredOrders = supplierOrders.filter((o) => supplierFilter === 'all' || o.supplierId === supplierFilter);
   const supplierFilterName = suppliers.find((s) => s.id === supplierFilter)?.name;
+
+  // Owing money is a live balance, not a period fact — unlike Income/Expenses it is
+  // deliberately NOT filtered by the date range, only by which supplier (or all of them) is
+  // selected. See PurchasingService.supplierBalances().
+  const dueTotals =
+    supplierFilter === 'all'
+      ? supplierBalances.reduce(
+          (acc, b) => ({ ordered: acc.ordered + b.ordered, paid: acc.paid + b.paid, owed: acc.owed + b.owed }),
+          { ordered: 0, paid: 0, owed: 0 },
+        )
+      : (supplierBalances.find((b) => b.supplierId === supplierFilter) ?? { ordered: 0, paid: 0, owed: 0 });
 
   // The bars come from the same endpoint the tiles do, so Σ(in) − Σ(out) across the chart
   // equals the Net tile above it rather than merely resembling it. Bucket width is chosen
@@ -187,6 +203,35 @@ export function MoneyInOut() {
     );
   };
 
+  const openSettleModal = () => {
+    setSettleForm({ supplierId: supplierFilter !== 'all' ? supplierFilter : '', amount: '', paymentMethod: '' });
+    setSettleModalOpen(true);
+  };
+
+  const settleTargetOwed = supplierBalances.find((b) => b.supplierId === settleForm.supplierId)?.owed ?? 0;
+
+  const submitSettle = () => {
+    if (!settleForm.supplierId) {
+      toast.error('Choose which supplier this payment is for');
+      return;
+    }
+    const amount = Math.round(Number(settleForm.amount) * 100);
+    if (!settleForm.amount || amount <= 0) {
+      toast.error('Enter how much was paid');
+      return;
+    }
+    settlePayment.mutate(
+      { supplierId: settleForm.supplierId, amount, paymentMethod: settleForm.paymentMethod || undefined },
+      {
+        onSuccess: () => {
+          toast.success('Payment recorded');
+          setSettleModalOpen(false);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not record payment'),
+      },
+    );
+  };
+
   const todayKey = businessDayKey(new Date().toISOString());
   const warnKey = businessDayKey(new Date(Date.now() + EXPIRY_WARNING_DAYS * 86_400_000).toISOString());
 
@@ -268,10 +313,25 @@ export function MoneyInOut() {
             }
           />
           <StatTile
-            label="Net"
-            value={formatCurrency(summary.data.range.net)}
-            tone={summary.data.range.net < 0 ? 'warn' : 'gold'}
-            hint={supplierFilterName ? `Income minus expenses, stock limited to ${supplierFilterName}` : 'Income minus expenses'}
+            label={supplierFilterName ? `Due · ${supplierFilterName}` : 'Due to suppliers'}
+            value={formatCurrency(dueTotals.owed)}
+            tone={dueTotals.owed > 0 ? 'expense' : 'income'}
+            hint={
+              dueTotals.ordered > 0
+                ? `${formatCurrency(dueTotals.paid)} paid of ${formatCurrency(dueTotals.ordered)} in shipments`
+                : 'No shipments logged yet'
+            }
+            action={
+              canLogShipments && (
+                <button
+                  type="button"
+                  onClick={openSettleModal}
+                  className="rounded-lg px-2 py-1 text-xs font-medium text-navy-700 hover:bg-slate-100"
+                >
+                  Settle
+                </button>
+              )
+            }
           />
         </div>
       )}
@@ -633,6 +693,59 @@ export function MoneyInOut() {
               </Button>
               <Button onClick={submit} disabled={createSupplierOrder.isPending}>
                 {createSupplierOrder.isPending ? 'Logging…' : 'Log order'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {settleModalOpen && (
+        <Modal title="Settle a supplier payment" onClose={() => setSettleModalOpen(false)}>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Supplier</label>
+              <Select value={settleForm.supplierId} onChange={(e) => setSettleForm({ ...settleForm, supplierId: e.target.value })}>
+                <option value="">Select supplier</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </Select>
+              {settleForm.supplierId && (
+                <p className="mt-1 text-xs text-slate-400">
+                  {settleTargetOwed > 0 ? `Currently owed: ${formatCurrency(settleTargetOwed)}` : 'Fully settled — nothing owed'}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Amount paid (EGP)</label>
+              <Input
+                type="number"
+                value={settleForm.amount}
+                onChange={(e) => setSettleForm({ ...settleForm, amount: e.target.value })}
+                placeholder="How much was paid"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Paid with (optional)</label>
+              <Select
+                value={settleForm.paymentMethod}
+                onChange={(e) => setSettleForm({ ...settleForm, paymentMethod: e.target.value as PaymentMethod | '' })}
+              >
+                <option value="">Not recorded</option>
+                <option value="cash">Cash</option>
+                <option value="instapay">InstaPay</option>
+                <option value="card">Visa / Card</option>
+              </Select>
+              <p className="mt-1 text-xs text-slate-400">Just for your own record — this doesn't feed the Expenses breakdown.</p>
+            </div>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setSettleModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={submitSettle} disabled={settlePayment.isPending}>
+                {settlePayment.isPending ? 'Recording…' : 'Record payment'}
               </Button>
             </div>
           </div>

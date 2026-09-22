@@ -206,6 +206,15 @@ export interface SupplierOrder {
   loggedByEmployee?: { id: string; name: string };
 }
 
+/** A live balance, not a period figure — see PurchasingService.supplierBalances(). */
+export interface SupplierBalance {
+  supplierId: string;
+  supplierName: string;
+  ordered: number; // piastres, all-time
+  paid: number; // piastres, all-time
+  owed: number; // piastres, ordered - paid
+}
+
 export type DiscountKind = 'percent' | 'fixed';
 
 export interface Discount {

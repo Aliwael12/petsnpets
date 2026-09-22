@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { PaymentMethod, Supplier, SupplierOrder } from '../types';
+import type { PaymentMethod, Supplier, SupplierBalance, SupplierOrder } from '../types';
 
 export function useSuppliers() {
   return useQuery({ queryKey: ['suppliers'], queryFn: () => api.get<Supplier[]>('/purchasing/suppliers') });
@@ -61,8 +61,32 @@ export function useCreateSupplierOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supplier-orders'] });
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+      queryClient.invalidateQueries({ queryKey: ['supplier-balances'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
+  });
+}
+
+/** A live balance per supplier — what they've shipped vs. what's been paid. Not
+ *  date-ranged: owing money isn't a period fact the way income/expenses are. */
+export function useSupplierBalances() {
+  return useQuery({
+    queryKey: ['supplier-balances'],
+    queryFn: () => api.get<SupplierBalance[]>('/purchasing/supplier-balances'),
+  });
+}
+
+export interface CreateSupplierPaymentInput {
+  supplierId: string;
+  amount: number;
+  paymentMethod?: PaymentMethod;
+}
+
+export function useSettleSupplierPayment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateSupplierPaymentInput) => api.post('/purchasing/supplier-payments', input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['supplier-balances'] }),
   });
 }

@@ -59,6 +59,19 @@ export const createSupplierOrderSchema = z
   });
 export type CreateSupplierOrderDto = z.infer<typeof createSupplierOrderSchema>;
 
+/**
+ * A payment toward a supplier's running balance, not tied to any one order — see
+ * PurchasingService.supplierBalances() for how "owed" is derived from orders and payments
+ * together. paymentMethod is purely informational (how the money left, for the user's own
+ * record); nothing computed from it, unlike a supplier order's own paymentMethod.
+ */
+export const createSupplierPaymentSchema = z.object({
+  supplierId: z.uuid(),
+  amount: z.number().int().positive(),
+  paymentMethod: paymentMethodSchema.optional(),
+});
+export type CreateSupplierPaymentDto = z.infer<typeof createSupplierPaymentSchema>;
+
 export const listSupplierOrdersQuerySchema = z
   .object({
     supplierId: z.uuid().optional(),
