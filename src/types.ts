@@ -87,6 +87,9 @@ export interface ClientPhone {
 export interface Client {
   id: string;
   name: string;
+  /** Row number from the clinic's pre-app spreadsheet — set only for clients carried over
+   *  by the historical import, null for anyone added since. */
+  legacyId?: number | null;
   createdAt: string;
   phones: ClientPhone[];
   pets?: Pet[];

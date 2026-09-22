@@ -152,6 +152,11 @@ export function Clients() {
                         {c.phones[0]?.phone} {petCount > 0 && `· ${petCount} pet${petCount > 1 ? 's' : ''}`}
                       </p>
                     </div>
+                    {c.legacyId != null && (
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                        #{c.legacyId}
+                      </span>
+                    )}
                   </button>
                 );
               })
@@ -167,7 +172,12 @@ export function Clients() {
               <>
                 <CardHeader
                   title={selectedClient.name}
-                  subtitle={selectedClient.phones.map((p) => p.phone).join(' · ')}
+                  subtitle={[
+                    selectedClient.legacyId != null ? `ID #${selectedClient.legacyId}` : null,
+                    ...selectedClient.phones.map((p) => p.phone),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                   action={
                     <div className="flex gap-2">
                       <Button variant="ghost" onClick={() => openEdit(selectedClient)}>

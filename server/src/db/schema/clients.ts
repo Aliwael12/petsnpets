@@ -1,10 +1,13 @@
-import { boolean, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { phoneLabelEnum } from './enums';
 
 export const clients = pgTable('clients', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   name: text('name').notNull(),
+  /** The row number from the clinic's pre-app spreadsheet, for clients carried over by the
+   *  historical import — null for anyone added since. Display-only; nothing keys off it. */
+  legacyId: integer('legacy_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
