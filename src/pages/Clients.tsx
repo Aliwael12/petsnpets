@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useClient, useClients, useCreateClient, useDeleteClient, useUpdateClient } from '../api/clients';
+import { useCreatePet } from '../api/pets';
 import { useSales } from '../api/sales';
 import { useRefunds } from '../api/refunds';
 import { useDiscounts } from '../api/discounts';
@@ -9,11 +10,21 @@ import { usePetLogsForPets } from '../api/petLogs';
 import { useEmployees } from '../api/employees';
 import { buildActivity } from '../lib/activity';
 import { ActivityFeed } from '../components/ActivityFeed';
-import { Button, Card, CardHeader, EmptyState, Input, Modal, PhoneListInput } from '../components/ui';
-import type { Client } from '../types';
+import { Button, Card, CardHeader, EmptyState, Input, Modal, PhoneListInput, Select } from '../components/ui';
+import { ApiError } from '../api/client';
+import type { Client, PetSex, Species } from '../types';
 import { PawPrint, Pencil, Phone, Plus, Search, Trash2, Users } from 'lucide-react';
 
 const emptyForm = { name: '', phones: [''] as string[] };
+const speciesOptions: Species[] = ['dog', 'cat', 'bird', 'rabbit', 'other'];
+const emptyPetForm = {
+  name: '',
+  species: 'dog' as Species,
+  breed: '',
+  sex: '' as '' | PetSex,
+  birthDate: '',
+  phones: [] as string[],
+};
 
 export function Clients() {
   const [search, setSearch] = useState('');
@@ -22,6 +33,7 @@ export function Clients() {
   const createClient = useCreateClient();
   const updateClient = useUpdateClient();
   const deleteClient = useDeleteClient();
+  const createPet = useCreatePet();
 
   const [searchParams] = useSearchParams();
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -29,6 +41,8 @@ export function Clients() {
   const [editing, setEditing] = useState<Client | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
+  const [petModalOpen, setPetModalOpen] = useState(false);
+  const [petForm, setPetForm] = useState(emptyPetForm);
 
   useEffect(() => {
     const clientParam = searchParams.get('client');
@@ -92,6 +106,37 @@ export function Clients() {
       );
       setModalOpen(false);
     }
+  };
+
+  const openAddPet = () => {
+    setPetForm(emptyPetForm);
+    setPetModalOpen(true);
+  };
+
+  const submitPet = () => {
+    if (!selectedClient) return;
+    if (!petForm.name.trim()) {
+      toast.error('Pet name is required');
+      return;
+    }
+    createPet.mutate(
+      {
+        name: petForm.name.trim(),
+        species: petForm.species,
+        breed: petForm.breed.trim(),
+        sex: petForm.sex || undefined,
+        birthDate: petForm.birthDate || undefined,
+        clientId: selectedClient.id,
+        phones: petForm.phones.map((p) => p.trim()).filter(Boolean),
+      },
+      {
+        onSuccess: () => {
+          toast.success('Pet added');
+          setPetModalOpen(false);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not add pet'),
+      },
+    );
   };
 
   const confirmDelete = () => {
@@ -190,9 +235,18 @@ export function Clients() {
                   }
                 />
                 <div className="px-5 py-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Linked pets ({linkedPets.length})
-                  </p>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Linked pets ({linkedPets.length})
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openAddPet}
+                      className="flex items-center gap-1 text-xs font-medium text-navy-700 hover:underline"
+                    >
+                      <Plus size={13} /> Add pet
+                    </button>
+                  </div>
                   {linkedPets.length === 0 ? (
                     <p className="text-sm text-slate-400">No pets linked to this client yet.</p>
                   ) : (
@@ -243,6 +297,57 @@ export function Clients() {
                 Cancel
               </Button>
               <Button onClick={submit}>{editing ? 'Save changes' : 'Add client'}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {petModalOpen && selectedClient && (
+        <Modal title={`Add pet for ${selectedClient.name}`} onClose={() => setPetModalOpen(false)}>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Pet name</label>
+              <Input value={petForm.name} onChange={(e) => setPetForm({ ...petForm, name: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Species</label>
+                <Select value={petForm.species} onChange={(e) => setPetForm({ ...petForm, species: e.target.value as Species })}>
+                  {speciesOptions.map((s) => (
+                    <option key={s} value={s}>
+                      {s[0].toUpperCase() + s.slice(1)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Breed</label>
+                <Input value={petForm.breed} onChange={(e) => setPetForm({ ...petForm, breed: e.target.value })} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Sex (optional)</label>
+                <Select value={petForm.sex} onChange={(e) => setPetForm({ ...petForm, sex: e.target.value as '' | PetSex })}>
+                  <option value="">Unknown</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Birth date (optional)</label>
+                <Input type="date" value={petForm.birthDate} onChange={(e) => setPetForm({ ...petForm, birthDate: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Additional contact numbers (optional)</label>
+              <PhoneListInput value={petForm.phones} onChange={(phones) => setPetForm({ ...petForm, phones })} />
+            </div>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setPetModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={submitPet} disabled={createPet.isPending}>
+                {createPet.isPending ? 'Saving…' : 'Add pet'}
+              </Button>
             </div>
           </div>
         </Modal>
