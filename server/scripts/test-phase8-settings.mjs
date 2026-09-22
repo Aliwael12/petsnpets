@@ -207,7 +207,7 @@ async function main() {
       supplierId: supplier.id,
       newProduct: { brand: 'Phase8 Brand', category: 'medicine', name: 'Phase8 Wormer', unitPrice: 12500 },
       quantity: 24,
-      costTotal: 180000,
+      unitCost: 7500,
       expiryDate: expiry,
     });
     check('a shipment can name a brand-new product as free text', res.status === 201, res.body);
@@ -229,7 +229,7 @@ async function main() {
       supplierId: supplier.id,
       newProduct: { category: 'service', name: 'Phase8 Bad Service', unitPrice: 100 },
       quantity: 1,
-      costTotal: 100,
+      unitCost: 100,
     });
     check('a shipment into a service category is rejected', res.status === 400, res.body);
   }
@@ -240,7 +240,7 @@ async function main() {
       productId: phase8ProductId,
       newProduct: { category: 'medicine', name: 'Phase8 Both', unitPrice: 100 },
       quantity: 1,
-      costTotal: 100,
+      unitCost: 100,
     });
     check('supplying both productId and newProduct is rejected', res.status === 400, res.body);
   }

@@ -97,7 +97,7 @@ async function main() {
     const res = await fetch(`${BASE}/purchasing/supplier-orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${doctor.token}` },
-      body: JSON.stringify({ supplierId, productId: newProductId, quantity: 15, costTotal: 30000 }),
+      body: JSON.stringify({ supplierId, productId: newProductId, quantity: 15, unitCost: 2000 }),
     });
     check('doctor logging a supplier order succeeds', res.ok, await res.text());
   }
@@ -118,7 +118,7 @@ async function main() {
     const res = await fetch(`${BASE}/purchasing/supplier-orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${doctor.token}` },
-      body: JSON.stringify({ supplierId, productId: service.id, quantity: 5, costTotal: 1000 }),
+      body: JSON.stringify({ supplierId, productId: service.id, quantity: 5, unitCost: 200 }),
     });
     const body = await res.json();
     check('ordering a service product is rejected', res.status === 400 && body.error?.code === 'VALIDATION_ERROR', body);

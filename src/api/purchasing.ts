@@ -48,7 +48,7 @@ export interface CreateSupplierOrderInput {
     lowStockThreshold?: number;
   };
   quantity: number;
-  costTotal: number;
+  unitCost: number;
   expiryDate?: string;
   paymentMethod?: PaymentMethod;
 }

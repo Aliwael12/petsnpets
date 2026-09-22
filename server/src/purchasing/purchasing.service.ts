@@ -139,7 +139,7 @@ export class PurchasingService {
           supplierId,
           productId,
           quantity: dto.quantity,
-          costTotal: dto.costTotal,
+          costTotal: dto.quantity * dto.unitCost,
           expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
           paymentMethod: dto.paymentMethod,
           loggedBy: actor.id,

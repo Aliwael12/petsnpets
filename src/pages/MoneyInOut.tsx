@@ -49,7 +49,7 @@ const emptyOrderForm = {
   productName: '',
   unitPrice: '',
   quantity: '',
-  costTotal: '',
+  unitCost: '',
   expiryDate: '',
   paymentMethod: '' as PaymentMethod | '',
 };
@@ -148,8 +148,8 @@ export function MoneyInOut() {
       toast.error('Select a product');
       return;
     }
-    if (!form.quantity || !form.costTotal) {
-      toast.error('Quantity and total cost are required');
+    if (!form.quantity || !form.unitCost) {
+      toast.error('Quantity and cost per unit are required');
       return;
     }
 
@@ -167,7 +167,7 @@ export function MoneyInOut() {
             }
           : undefined,
         quantity: Number(form.quantity),
-        costTotal: Math.round(Number(form.costTotal) * 100),
+        unitCost: Math.round(Number(form.unitCost) * 100),
         // A date input gives a bare calendar day; send it as an instant so the API's
         // ISO-datetime validation accepts it.
         expiryDate: form.expiryDate ? new Date(`${form.expiryDate}T00:00:00Z`).toISOString() : undefined,
@@ -566,10 +566,15 @@ export function MoneyInOut() {
                 <Input type="number" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">Total cost (EGP)</label>
-                <Input type="number" value={form.costTotal} onChange={(e) => setForm({ ...form, costTotal: e.target.value })} />
+                <label className="mb-1 block text-xs font-medium text-slate-500">Cost per unit (EGP)</label>
+                <Input type="number" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: e.target.value })} />
               </div>
             </div>
+            {Number(form.quantity) > 0 && Number(form.unitCost) > 0 && (
+              <p className="text-xs text-slate-400">
+                Total cost: {formatCurrency(Math.round(Number(form.quantity) * Number(form.unitCost) * 100))}
+              </p>
+            )}
 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Paid with (optional)</label>

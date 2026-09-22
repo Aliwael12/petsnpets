@@ -36,7 +36,11 @@ export const createSupplierOrderSchema = z
       .optional(),
 
     quantity: z.number().int().positive(),
-    costTotal: z.number().int().nonnegative(), // piastres
+    /** Cost per unit, in piastres — what staff actually reads off the supplier's invoice.
+     * The shipment's total cost is quantity * unitCost, computed server-side (see
+     * PurchasingService.createOrder) rather than trusted from the client, so it can never
+     * drift from the two numbers that produced it. */
+    unitCost: z.number().int().nonnegative(),
     expiryDate: z.iso.datetime().optional(),
     /** How the shipment was paid for. Optional so an older client keeps working; omitted
      * reads as "not recorded" in the expense breakdown. */
