@@ -51,6 +51,7 @@ const emptyOrderForm = {
   quantity: '',
   unitCost: '',
   expiryDate: '',
+  receivedAt: '',
   paymentMethod: '' as PaymentMethod | '',
 };
 
@@ -171,6 +172,8 @@ export function MoneyInOut() {
         // A date input gives a bare calendar day; send it as an instant so the API's
         // ISO-datetime validation accepts it.
         expiryDate: form.expiryDate ? new Date(`${form.expiryDate}T00:00:00Z`).toISOString() : undefined,
+        // Left blank, the server logs it as of right now — no need to send anything.
+        receivedAt: form.receivedAt ? new Date(`${form.receivedAt}T00:00:00Z`).toISOString() : undefined,
         paymentMethod: form.paymentMethod || undefined,
       },
       {
@@ -575,6 +578,17 @@ export function MoneyInOut() {
                 Total cost: {formatCurrency(Math.round(Number(form.quantity) * Number(form.unitCost) * 100))}
               </p>
             )}
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Order date (optional)</label>
+              <Input
+                type="date"
+                max={businessDayKey(new Date().toISOString())}
+                value={form.receivedAt}
+                onChange={(e) => setForm({ ...form, receivedAt: e.target.value })}
+              />
+              <p className="mt-1 text-xs text-slate-400">Leave blank to log it as received today.</p>
+            </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Paid with (optional)</label>

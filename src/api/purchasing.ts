@@ -50,6 +50,7 @@ export interface CreateSupplierOrderInput {
   quantity: number;
   unitCost: number;
   expiryDate?: string;
+  receivedAt?: string;
   paymentMethod?: PaymentMethod;
 }
 

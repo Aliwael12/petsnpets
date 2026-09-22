@@ -42,6 +42,9 @@ export const createSupplierOrderSchema = z
      * drift from the two numbers that produced it. */
     unitCost: z.number().int().nonnegative(),
     expiryDate: z.iso.datetime().optional(),
+    /** When the shipment actually arrived, for backdating a shipment logged late. Omitted
+     * means "now" — the column's own defaultNow(), the same as before this field existed. */
+    receivedAt: z.iso.datetime().optional(),
     /** How the shipment was paid for. Optional so an older client keeps working; omitted
      * reads as "not recorded" in the expense breakdown. */
     paymentMethod: paymentMethodSchema.optional(),

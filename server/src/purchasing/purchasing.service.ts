@@ -143,6 +143,9 @@ export class PurchasingService {
           expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
           paymentMethod: dto.paymentMethod,
           loggedBy: actor.id,
+          // Omitted rather than passed as undefined so the column's own defaultNow() fires
+          // — same as every order logged before this field existed.
+          ...(dto.receivedAt ? { receivedAt: new Date(dto.receivedAt) } : {}),
         })
         .returning();
 
