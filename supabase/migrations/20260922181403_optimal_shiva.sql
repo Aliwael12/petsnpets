@@ -1,0 +1,2 @@
+CREATE SEQUENCE "public"."client_legacy_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1381 CACHE 1;--> statement-breakpoint
+ALTER TABLE "clients" ALTER COLUMN "legacy_id" SET DEFAULT nextval('client_legacy_id_seq');
