@@ -105,7 +105,7 @@ export function POS() {
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id;
 
   const filtered = useMemo(
-    () => products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) && (p.category === 'service' || p.stockQuantity > 0)),
+    () => products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase())),
     [products, search],
   );
 
@@ -326,7 +326,9 @@ export function POS() {
                   <span className="text-xs text-slate-400 capitalize">{p.category}</span>
                   <span className="mt-1 line-clamp-2 text-sm font-medium text-navy-950">{p.name}</span>
                   <span className="mt-2 text-sm font-semibold text-navy-800">{formatCurrency(p.unitPrice)}</span>
-                  <span className="mt-1 text-xs text-slate-400">{p.category === 'service' ? 'Service' : `${p.stockQuantity} in stock`}</span>
+                  <span className={`mt-1 text-xs ${p.category !== 'service' && p.stockQuantity <= 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                    {p.category === 'service' ? 'Service' : p.stockQuantity <= 0 ? 'Out of stock' : `${p.stockQuantity} in stock`}
+                  </span>
                 </button>
               ))}
             </div>
