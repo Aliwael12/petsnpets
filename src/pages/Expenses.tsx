@@ -221,9 +221,12 @@ export function Expenses() {
             />
             <StatTile
               label={incomePeriod === 'daily' ? 'Net today' : 'Net this month'}
-              value={formatCurrency(periodSummary.range.net)}
-              tone={periodSummary.range.net < 0 ? 'warn' : 'gold'}
-              hint={`${formatCurrency(periodSummary.range.income.net)} income − ${formatCurrency(periodSummary.range.expenses.total)} expenses`}
+              // Deliberately income minus only this tab's own entries (running costs) —
+              // supplier stock costs are Money In / Out's territory, so periodSummary.range.net
+              // (which folds both in) would double-count them here.
+              value={formatCurrency(periodSummary.range.income.net - periodSummary.range.expenses.operating)}
+              tone={periodSummary.range.income.net - periodSummary.range.expenses.operating < 0 ? 'warn' : 'gold'}
+              hint={`${formatCurrency(periodSummary.range.income.net)} income − ${formatCurrency(periodSummary.range.expenses.operating)} running costs`}
             />
           </div>
         )}
