@@ -1,49 +1,49 @@
-import { useBookableServices, useOpeningHours } from '../api/appointments';
+import { useOpeningHours } from '../api/appointments';
 import { Reveal } from './Reveal';
-import {
-  Bath,
-  Clock,
-  HeartPulse,
-  MapPin,
-  PhoneCall,
-  PawPrint,
-  Scan,
-  ShieldCheck,
-  ShoppingBag,
-  Stethoscope,
-  Syringe,
-  Scissors,
-} from 'lucide-react';
+import { Bath, Clock, HeartPulse, MapPin, PhoneCall, PawPrint, Scan, ShieldCheck, ShoppingBag, Stethoscope, Syringe, Scissors } from 'lucide-react';
 import type { ComponentType } from 'react';
 
-function money(piastres: number): string {
-  return `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-}
-
-/** Matches a catalog service name to an icon. Falls back to the stethoscope so a service
- * added later in the CRM still renders correctly without a code change here. */
-function iconForService(name: string): ComponentType<{ size?: number; className?: string }> {
-  const n = name.toLowerCase();
-  if (n.includes('vaccin')) return Syringe;
-  if (n.includes('sonar') || n.includes('ultrasound') || n.includes('scan')) return Scan;
-  if (n.includes('groom')) return Scissors;
-  if (n.includes('bath') || n.includes('shower')) return Bath;
-  if (n.includes('nail')) return PawPrint;
-  return Stethoscope;
-}
-
-const SERVICE_BLURBS: Record<string, string> = {
-  'General Checkup / Consultation': 'A full nose-to-tail examination with one of our vets, plus a written plan you take home.',
-  'Vaccination Administration': 'Core and travel vaccines, with the next due date tracked for you so nothing is missed.',
-  'Sonar (Ultrasound Scan)': 'In-house ultrasound imaging — diagnosis and results in the same visit, no referral needed.',
-  'Full Grooming Service': 'Wash, cut, blow-dry, ears and nails, handled by groomers who work with anxious animals daily.',
-  'Bath & Shower Service': 'Medicated or routine bathing with coat-appropriate products and a proper dry.',
-  'Nail Trimming Service': 'A quick, low-stress trim — walk in, or add it onto any other appointment.',
-};
+/**
+ * Deliberately static — this used to read live from the product catalog, which is meant for
+ * running the till, not for public marketing copy: a test entry, a mis-priced product or a
+ * duplicate a staff member left in the system would show up here verbatim. What the clinic
+ * actually offers changes rarely enough that a hand-maintained list, without prices (which
+ * DO change and are agreed on the call when a booking is confirmed), is the honest choice.
+ */
+const SERVICES: { icon: ComponentType<{ size?: number; className?: string }>; name: string; blurb: string }[] = [
+  {
+    icon: Stethoscope,
+    name: 'General Checkup / Consultation',
+    blurb: 'A full nose-to-tail examination with one of our vets, plus a written plan you take home.',
+  },
+  {
+    icon: Syringe,
+    name: 'Vaccination Administration',
+    blurb: 'Core and travel vaccines, with the next due date tracked for you so nothing is missed.',
+  },
+  {
+    icon: Scan,
+    name: 'Sonar (Ultrasound Scan)',
+    blurb: 'In-house ultrasound imaging — diagnosis and results in the same visit, no referral needed.',
+  },
+  {
+    icon: Scissors,
+    name: 'Full Grooming Service',
+    blurb: 'Wash, cut, blow-dry, ears and nails, handled by groomers who work with anxious animals daily.',
+  },
+  {
+    icon: Bath,
+    name: 'Bath & Shower Service',
+    blurb: 'Medicated or routine bathing with coat-appropriate products and a proper dry.',
+  },
+  {
+    icon: PawPrint,
+    name: 'Nail Trimming Service',
+    blurb: 'A quick, low-stress trim — walk in, or add it onto any other appointment.',
+  },
+];
 
 export function Services() {
-  const { data: services = [] } = useBookableServices();
-
   return (
     <section id="services" className="mx-auto max-w-6xl scroll-mt-20 px-5 py-20 lg:px-8 lg:py-28">
       <Reveal>
@@ -52,34 +52,27 @@ export function Services() {
           One clinic for check-ups, grooming and everything in between.
         </h2>
         <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-mute">
-          Prices below are the ones on our counter today — this page reads them straight from the clinic system, so what
-          you see is what you pay.
+          Book online in under a minute — we&apos;ll call to confirm the time and agree the price before you come in.
         </p>
       </Reveal>
 
       <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {services.map((service, i) => {
-          const Icon = iconForService(service.name);
-          return (
-            <Reveal key={service.id} delay={Math.min(i, 5) * 60}>
-              <article className="lift flex h-full flex-col rounded-2xl border border-line bg-white p-5">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-                  <Icon size={18} />
-                </span>
-                <h3 className="mt-3.5 text-[17px] font-bold text-ink">{service.name}</h3>
-                <p className="mt-1.5 flex-1 text-sm leading-relaxed text-mute">
-                  {SERVICE_BLURBS[service.name] ?? 'Booked and carried out by our clinical team at the 6th of October centre.'}
-                </p>
-                <div className="mt-4 flex items-center justify-between border-t border-line pt-3.5">
-                  <span className="tnum text-[15px] font-bold text-brand-700">{money(service.unitPrice)}</span>
-                  <a href="#book" className="pressable text-sm font-semibold text-brand-600 hover:text-brand-800">
-                    Book →
-                  </a>
-                </div>
-              </article>
-            </Reveal>
-          );
-        })}
+        {SERVICES.map((service, i) => (
+          <Reveal key={service.name} delay={Math.min(i, 5) * 60}>
+            <article className="lift flex h-full flex-col rounded-2xl border border-line bg-white p-5">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+                <service.icon size={18} />
+              </span>
+              <h3 className="mt-3.5 text-[17px] font-bold text-ink">{service.name}</h3>
+              <p className="mt-1.5 flex-1 text-sm leading-relaxed text-mute">{service.blurb}</p>
+              <div className="mt-4 flex items-center justify-end border-t border-line pt-3.5">
+                <a href="#book" className="pressable text-sm font-semibold text-brand-600 hover:text-brand-800">
+                  Book →
+                </a>
+              </div>
+            </article>
+          </Reveal>
+        ))}
       </div>
 
       <Reveal delay={80}>

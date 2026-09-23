@@ -23,16 +23,6 @@ function Hero() {
       />
       <div className="relative mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-5 pb-16 pt-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)] lg:gap-16 lg:px-8 lg:pb-24 lg:pt-16">
         <div>
-          <Reveal>
-            <span className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-brand-700">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-brand-500 opacity-60" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-brand-600" />
-              </span>
-              6th of October, Giza · Open today
-            </span>
-          </Reveal>
-
           <Reveal delay={60}>
             <h1 className="mt-5 text-[2.6rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-ink sm:text-6xl">
               Your pet is <span className="text-brand-600">family</span>.
