@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type { Discount, DiscountKind } from '../types';
 
-export function useDiscounts(filters: { clientId?: string; availableOnly?: boolean } = {}, options: { enabled?: boolean } = {}) {
+export function useDiscounts(
+  filters: { clientId?: string; availableOnly?: boolean } = {},
+  options: { enabled?: boolean; staleTime?: number } = {},
+) {
   const params = new URLSearchParams();
   if (filters.clientId) params.set('clientId', filters.clientId);
   if (filters.availableOnly) params.set('availableOnly', 'true');
@@ -11,6 +14,7 @@ export function useDiscounts(filters: { clientId?: string; availableOnly?: boole
     queryKey: ['discounts', filters],
     queryFn: () => api.get<Discount[]>(`/discounts${qs ? `?${qs}` : ''}`),
     enabled: options.enabled,
+    staleTime: options.staleTime,
   });
 }
 

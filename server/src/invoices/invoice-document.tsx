@@ -45,7 +45,10 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
     },
     grandTotalLabel: { fontSize: 11, fontWeight: 700, color: '#101c4d' },
     grandTotalValue: { fontSize: 11, fontWeight: 700, color: '#101c4d' },
-    footer: { marginTop: 40, fontSize: 8, color: '#94a3b8', textAlign: 'center' },
+    footer: { marginTop: 40, borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 10 },
+    footerThanks: { fontSize: 8, color: '#94a3b8', textAlign: 'center', marginBottom: 6 },
+    footerContact: { flexDirection: 'row', justifyContent: 'center', gap: 14 },
+    footerContactItem: { fontSize: 8, fontWeight: 700, color: '#101c4d' },
   });
 
   // Amounts arrive in piastres (integer, matching the DB); this is the one place they're
@@ -140,12 +143,28 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
             ) : null}
           </View>
 
-          <Text style={styles.footer}>Thank you for visiting Elite Blue Veterinary Center. This is a system-generated invoice.</Text>
+          <View style={styles.footer}>
+            <Text style={styles.footerThanks}>Thank you for visiting Elite Blue Veterinary Center. This is a system-generated invoice.</Text>
+            <View style={styles.footerContact}>
+              <Text style={styles.footerContactItem}>{CLINIC_PHONE}</Text>
+              <Text style={styles.footerContactItem}>•</Text>
+              <Text style={styles.footerContactItem}>{CLINIC_FACEBOOK_HANDLE}</Text>
+              <Text style={styles.footerContactItem}>•</Text>
+              <Text style={styles.footerContactItem}>{CLINIC_WEBSITE_LABEL}</Text>
+            </View>
+          </View>
         </Page>
       </Document>
     );
   };
 }
+
+/** Public contact details printed on every invoice footer — deliberately plain constants
+ * rather than config: they're marketing copy for a printed document, not deployment
+ * settings, so a change here is a one-line edit rather than an env var round trip. */
+const CLINIC_PHONE = 'Call: +20 109 411 8811';
+const CLINIC_FACEBOOK_HANDLE = 'fb.com/elitebluevet';
+const CLINIC_WEBSITE_LABEL = 'eliteblueclinic.vercel.app';
 
 /** The owner's own vocabulary — the stored value is 'card' because the same terminal takes
  * Mastercard and Meeza, but a customer reads "Visa / Card" on their receipt. */

@@ -84,7 +84,12 @@ export function POS() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [soldBy, setSoldBy] = useState('');
 
-  const { data: availableDiscounts = [] } = useDiscounts({ clientId, availableOnly: true }, { enabled: !!clientId });
+  // staleTime: 0 — a discount is single-use and can be created for this client on another
+  // screen or device seconds before checkout (e.g. an admin creates it on Dashboard, then
+  // switches back to POS to ring up the sale). The app-wide 15s cache window was stale
+  // enough to make a just-created discount invisible at the register, so this one query
+  // always re-checks the server rather than trusting a cached "no discounts" answer.
+  const { data: availableDiscounts = [] } = useDiscounts({ clientId, availableOnly: true }, { enabled: !!clientId, staleTime: 0 });
 
   const selectedClient = clients.find((c) => c.id === clientId) ?? null;
   const clientMatches = useMemo(() => {
