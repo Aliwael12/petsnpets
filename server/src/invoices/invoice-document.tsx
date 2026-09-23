@@ -45,8 +45,8 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
     },
     grandTotalLabel: { fontSize: 11, fontWeight: 700, color: '#101c4d' },
     grandTotalValue: { fontSize: 11, fontWeight: 700, color: '#101c4d' },
-    footer: { marginTop: 40, borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 10 },
-    footerThanks: { fontSize: 8, color: '#94a3b8', textAlign: 'center', marginBottom: 6 },
+    footer: { marginTop: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 6 },
+    footerThanks: { fontSize: 8, color: '#94a3b8', textAlign: 'center', marginBottom: 3 },
     footerContact: { flexDirection: 'row', justifyContent: 'center', gap: 14 },
     footerContactItem: { fontSize: 8, fontWeight: 700, color: '#101c4d' },
   });

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Plus, Ban } from 'lucide-react';
 import { useCreateExpense, useExpenses, useVoidExpense } from '../api/expenses';
+import { useFinancialSummary } from '../api/analytics';
 import { ApiError } from '../api/client';
 import { businessDayKey } from '../lib/timezone';
 import {
@@ -15,6 +16,7 @@ import {
   Modal,
   Select,
   StatTile,
+  TabSwitch,
   formatCurrency,
   formatDate,
 } from '../components/ui';
@@ -51,6 +53,16 @@ export function Expenses() {
   const [range, setRange] = useState<Range>('this-month');
   const [categoryFilter, setCategoryFilter] = useState<ExpenseCategory | 'all'>('all');
   const [methodFilter, setMethodFilter] = useState<PaymentMethod | 'all'>('all');
+  const [incomePeriod, setIncomePeriod] = useState<'daily' | 'monthly'>('monthly');
+
+  // Independent of the table filters above — Income/Net answer "how are we doing today or
+  // this month", not "show me a slice of the expense history", so they get their own,
+  // simpler daily/monthly toggle rather than reusing this-month/30/all.
+  const incomeRange = useMemo(
+    () => (incomePeriod === 'daily' ? { from: today(), to: today() } : { from: startOfThisMonth(), to: today() }),
+    [incomePeriod],
+  );
+  const { data: periodSummary } = useFinancialSummary(incomeRange);
 
   const filters = useMemo(() => {
     if (range === 'this-month') return { from: startOfThisMonth() };
@@ -172,6 +184,49 @@ export function Expenses() {
           value={String(byCategory.length)}
           hint={byCategory.length > 1 ? byCategory.slice(1, 3).map(([c]) => EXPENSE_CATEGORY_LABELS[c]).join(', ') : undefined}
         />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-navy-950">Income vs. expenses</h2>
+            <p className="text-xs text-slate-500">Money that came in from transactions against what went out</p>
+          </div>
+          <TabSwitch
+            value={incomePeriod}
+            onChange={setIncomePeriod}
+            options={[
+              { value: 'daily', label: 'Daily' },
+              { value: 'monthly', label: 'Monthly' },
+            ]}
+          />
+        </div>
+        {!periodSummary ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {[0, 1].map((i) => (
+              <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <StatTile
+              label={incomePeriod === 'daily' ? 'Income today' : 'Income this month'}
+              value={formatCurrency(periodSummary.range.income.net)}
+              tone={periodSummary.range.income.net < 0 ? 'warn' : 'income'}
+              hint={
+                periodSummary.range.income.refunds > 0
+                  ? `${formatCurrency(periodSummary.range.income.gross)} sales − ${formatCurrency(periodSummary.range.income.refunds)} refunded`
+                  : `${formatCurrency(periodSummary.range.income.gross)} in sales`
+              }
+            />
+            <StatTile
+              label={incomePeriod === 'daily' ? 'Net today' : 'Net this month'}
+              value={formatCurrency(periodSummary.range.net)}
+              tone={periodSummary.range.net < 0 ? 'warn' : 'gold'}
+              hint={`${formatCurrency(periodSummary.range.income.net)} income − ${formatCurrency(periodSummary.range.expenses.total)} expenses`}
+            />
+          </div>
+        )}
       </div>
 
       <Card>
