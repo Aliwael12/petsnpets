@@ -44,7 +44,7 @@ export class SalesService {
       with: {
         items: { with: { product: { columns: { id: true, name: true } } } },
         soldByEmployee: { columns: { id: true, name: true } },
-        client: { columns: { id: true, name: true } },
+        client: { columns: { id: true, name: true, legacyId: true } },
       },
     });
 

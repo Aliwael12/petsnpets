@@ -1,4 +1,6 @@
 import type * as ReactPdf from '@react-pdf/renderer';
+import { CLINIC_LOGO_DATA_URI } from './clinic-logo';
+import { ROLE_LABELS } from './role-labels';
 
 // Deliberately no top-level `import { Document, ... } from '@react-pdf/renderer'`: that
 // package is ESM-only (no CJS entry point at all — see its package.json), and CommonJS
@@ -9,18 +11,20 @@ import type * as ReactPdf from '@react-pdf/renderer';
 // dynamic `await import(...)` — always supported, regardless of require(esm)) means this
 // file itself never statically requires the ESM-only package at all.
 export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
-  const { Document, Page, Text, View, StyleSheet } = reactPdf;
+  const { Document, Page, Text, View, Image, StyleSheet } = reactPdf;
 
   const styles = StyleSheet.create({
     page: { padding: 36, fontSize: 10, fontFamily: 'Helvetica', color: '#16192b' },
-    header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
-    brand: { fontSize: 18, fontWeight: 700, color: '#101c4d' },
-    brandSub: { fontSize: 9, color: '#64748b', marginTop: 2 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+    logo: { width: 110, height: 77 },
     invoiceTitle: { fontSize: 14, fontWeight: 700, textAlign: 'right' },
     metaLabel: { color: '#94a3b8', fontSize: 8, textAlign: 'right' },
     metaValue: { fontSize: 10, textAlign: 'right', marginBottom: 4 },
+    detailsRow: { flexDirection: 'row', marginBottom: 16 },
+    detailsCol: { flex: 1 },
     section: { marginBottom: 16 },
     sectionLabel: { fontSize: 8, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 3 },
+    subLine: { fontSize: 9, color: '#64748b', marginTop: 2 },
     table: { borderTopWidth: 1, borderTopColor: '#e2e8f0' },
     tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', paddingVertical: 6 },
     tableHeaderRow: { flexDirection: 'row', paddingVertical: 6, backgroundColor: '#f1f5f9' },
@@ -50,17 +54,21 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
     return `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
   }
 
-  return function InvoiceDocument({ transaction, soldByName }: InvoiceDocProps) {
+  function discountLabel(discount: InvoiceDocProps['transaction']['discount']) {
+    if (!discount) return 'Discount';
+    return discount.kind === 'percent' ? `Discount (${discount.value}%)` : 'Discount';
+  }
+
+  return function InvoiceDocument({ transaction, soldByName, soldByRole }: InvoiceDocProps) {
     const invoiceNo = `INV-${transaction.invoiceYear}-${String(transaction.invoiceNo).padStart(5, '0')}`;
+    const client = transaction.client;
+    const pets = client?.pets ?? [];
 
     return (
       <Document>
         <Page size="A5" style={styles.page}>
           <View style={styles.header}>
-            <View>
-              <Text style={styles.brand}>ELITE BLUE</Text>
-              <Text style={styles.brandSub}>Veterinary Center</Text>
-            </View>
+            <Image style={styles.logo} src={CLINIC_LOGO_DATA_URI} />
             <View>
               <Text style={styles.invoiceTitle}>INVOICE</Text>
               <Text style={styles.metaLabel}>Invoice No.</Text>
@@ -70,14 +78,23 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
             </View>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Billed to</Text>
-            <Text>{transaction.customerName}</Text>
+          <View style={styles.detailsRow}>
+            <View style={styles.detailsCol}>
+              <Text style={styles.sectionLabel}>Billed to</Text>
+              <Text>{transaction.customerName}</Text>
+              {client?.legacyId != null && <Text style={styles.subLine}>Client #{client.legacyId}</Text>}
+              {client?.phone && <Text style={styles.subLine}>{client.phone}</Text>}
+            </View>
+            <View style={styles.detailsCol}>
+              <Text style={styles.sectionLabel}>Pet(s)</Text>
+              <Text>{pets.length > 0 ? pets.join(', ') : '—'}</Text>
+            </View>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Served by</Text>
             <Text>{soldByName}</Text>
+            <Text style={styles.subLine}>{ROLE_LABELS[soldByRole]}</Text>
           </View>
 
           <View style={styles.table}>
@@ -105,9 +122,10 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
                   <Text>{money(transaction.subtotal)}</Text>
                 </View>
                 <View style={styles.totalsRow}>
-                  <Text>Discount</Text>
+                  <Text>{discountLabel(transaction.discount)}</Text>
                   <Text>-{money(transaction.discountAmount)}</Text>
                 </View>
+                {transaction.discount?.note ? <Text style={styles.subLine}>{transaction.discount.note}</Text> : null}
               </>
             ) : null}
             <View style={styles.grandTotalRow}>
@@ -145,11 +163,19 @@ export interface InvoiceDocProps {
     createdAt: Date | string;
     subtotal: number;
     discountAmount?: number | null;
+    discount?: { kind: 'percent' | 'fixed'; value: number; note?: string | null } | null;
     total: number;
     /** Absent on sales recorded before payment tracking existed — the invoice then simply
      * omits the line rather than printing a guess. */
     paymentMethod?: 'cash' | 'instapay' | 'card' | null;
     items: { productName: string; quantity: number; unitPrice: number }[];
+    /** Absent for sales predating client tracking, or where the client was since deleted. */
+    client?: {
+      legacyId: number | null;
+      phone?: string | null;
+      pets: string[];
+    } | null;
   };
   soldByName: string;
+  soldByRole: 'admin' | 'doctor' | 'nurse' | 'cashier';
 }

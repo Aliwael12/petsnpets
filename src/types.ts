@@ -265,7 +265,7 @@ export interface Transaction {
   createdAt: string;
   items: TransactionItem[];
   soldByEmployee?: { id: string; name: string };
-  client?: { id: string; name: string };
+  client?: { id: string; name: string; legacyId?: number | null };
 }
 
 export interface RefundItem {

@@ -39,9 +39,26 @@ export class InvoicesService {
   async renderAndStore(transactionId: string): Promise<string> {
     const txn = await this.db.query.transactions.findFirst({
       where: eq(transactions.id, transactionId),
-      with: { items: { with: { product: { columns: { name: true } } } }, soldByEmployee: { columns: { name: true } } },
+      with: {
+        items: { with: { product: { columns: { name: true } } } },
+        soldByEmployee: { columns: { name: true, role: true } },
+        discount: { columns: { kind: true, value: true, note: true } },
+        client: {
+          columns: { legacyId: true },
+          with: {
+            phones: { columns: { phone: true, isPrimary: true } },
+            pets: { columns: { name: true } },
+          },
+        },
+      },
     });
     if (!txn) throw new NotFoundAppError('Transaction', transactionId);
+
+    // Sales predate client tracking for some old rows (customerName was free text before
+    // clientId existed) — client can legitimately be absent.
+    const primaryPhone = txn.client
+      ? (txn.client.phones.find((p) => p.isPrimary) ?? txn.client.phones[0])?.phone
+      : undefined;
 
     const reactPdf = await import('@react-pdf/renderer');
     const { createInvoiceDocument } = await import('./invoice-document.js');
@@ -56,11 +73,16 @@ export class InvoicesService {
           createdAt: txn.createdAt,
           subtotal: txn.subtotal,
           discountAmount: txn.discountAmount,
+          discount: txn.discount,
           total: txn.total,
           paymentMethod: txn.paymentMethod,
           items: txn.items.map((it) => ({ productName: it.product.name, quantity: it.quantity, unitPrice: it.unitPrice })),
+          client: txn.client
+            ? { legacyId: txn.client.legacyId, phone: primaryPhone, pets: txn.client.pets.map((p) => p.name) }
+            : null,
         }}
         soldByName={txn.soldByEmployee.name}
+        soldByRole={txn.soldByEmployee.role}
       />,
     ).toBuffer();
 
@@ -77,25 +99,20 @@ export class InvoicesService {
     return path;
   }
 
-  /** Returns a short-lived signed URL, rendering+storing the PDF first if it doesn't exist
-   * yet (e.g. the very first request for a freshly-completed sale). */
+  /** Returns a short-lived signed URL, always re-rendering the PDF from the current
+   * transaction row first (upload is an upsert, so this is safe and idempotent).
+   *
+   * This used to skip rendering when a file already existed at the deterministic
+   * `year/invoiceNo.pdf` path, as a cache. But that path is a sequential number, not a
+   * unique id — anything else ever written there (a leftover test upload, a stray file
+   * from before this feature existed, another year's counter reset) would be served
+   * forever as "the" invoice for whichever transaction later lands on that same number,
+   * with nothing to tell the two apart. Always rendering fresh removes that whole class of
+   * bug at the cost of a render on every view, which at this business's volume is fine. */
   async getSignedUrl(transactionId: string, expiresInSeconds = 300): Promise<string> {
-    const txn = await this.db.query.transactions.findFirst({
-      where: eq(transactions.id, transactionId),
-      columns: { invoiceYear: true, invoiceNo: true },
-    });
-    if (!txn) throw new NotFoundAppError('Transaction', transactionId);
+    const path = await this.renderAndStore(transactionId);
 
     const bucket = this.config.getOrThrow<string>('INVOICE_BUCKET');
-    const path = this.objectPath(txn.invoiceYear, txn.invoiceNo);
-
-    const exists = await this.supabase.storage.from(bucket).list(String(txn.invoiceYear), {
-      search: `${String(txn.invoiceNo).padStart(5, '0')}.pdf`,
-    });
-    if (!exists.data || exists.data.length === 0) {
-      await this.renderAndStore(transactionId);
-    }
-
     const { data, error } = await this.supabase.storage.from(bucket).createSignedUrl(path, expiresInSeconds);
     if (error || !data) {
       throw new AppError('INVOICE_STORAGE_FAILED', `Could not sign invoice URL: ${error?.message}`, HttpStatus.BAD_GATEWAY);
@@ -176,26 +193,12 @@ export class InvoicesService {
     return { path, invoiceYear: refund.invoiceYear };
   }
 
-  /** Signed URL for a refund's credit note, rendering it on first request. */
+  /** Signed URL for a refund's credit note, always re-rendered fresh — see getSignedUrl's
+   * comment for why this no longer trusts whatever's already sitting at the storage path. */
   async getRefundSignedUrl(refundId: string, expiresInSeconds = 300): Promise<string> {
-    const [refund] = await this.db
-      .select({ id: refunds.id, invoiceYear: transactions.invoiceYear })
-      .from(refunds)
-      .innerJoin(transactions, eq(transactions.id, refunds.transactionId))
-      .where(eq(refunds.id, refundId))
-      .limit(1);
-    if (!refund) throw new NotFoundAppError('Refund', refundId);
+    const { path } = await this.renderAndStoreRefund(refundId);
 
     const bucket = this.config.getOrThrow<string>('INVOICE_BUCKET');
-    const path = this.refundObjectPath(refund.invoiceYear, refund.id);
-
-    const exists = await this.supabase.storage
-      .from(bucket)
-      .list(`refunds/${refund.invoiceYear}`, { search: `${refund.id}.pdf` });
-    if (!exists.data || exists.data.length === 0) {
-      await this.renderAndStoreRefund(refundId);
-    }
-
     const { data, error } = await this.supabase.storage.from(bucket).createSignedUrl(path, expiresInSeconds);
     if (error || !data) {
       throw new AppError('INVOICE_STORAGE_FAILED', `Could not sign credit note URL: ${error?.message}`, HttpStatus.BAD_GATEWAY);

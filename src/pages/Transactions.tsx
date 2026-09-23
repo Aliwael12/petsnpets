@@ -83,7 +83,9 @@ export function Transactions() {
               <thead>
                 <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-5 py-3 font-medium">Customer</th>
+                  <th className="px-5 py-3 font-medium">Client ID</th>
                   <th className="px-5 py-3 font-medium">Items</th>
+                  <th className="px-5 py-3 font-medium">Discount</th>
                   <th className="px-5 py-3 font-medium">Paid with</th>
                   <th className="px-5 py-3 font-medium">Sold by</th>
                   <th className="px-5 py-3 font-medium">Date</th>
@@ -96,7 +98,19 @@ export function Transactions() {
                   <tr key={t.id}>
                     <td className="px-5 py-3 font-medium text-navy-950">{t.customerName}</td>
                     <td className="px-5 py-3 text-slate-500">
-                      {t.items.map((it) => `${it.product?.name ?? it.productId} ×${it.quantity}`).join(', ')}
+                      {t.client?.legacyId != null ? `#${t.client.legacyId}` : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-5 py-3 text-slate-500">
+                      <div className="flex flex-col gap-0.5">
+                        {t.items.map((it) => (
+                          <span key={it.id}>
+                            {it.product?.name ?? it.productId} × {formatCurrency(it.unitPrice)} × {it.quantity}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      {t.discountAmount ? <Badge tone="discount">-{formatCurrency(t.discountAmount)}</Badge> : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="whitespace-nowrap px-5 py-3 text-slate-600">
                       {t.paymentMethod ? PAYMENT_METHOD_LABELS[t.paymentMethod] : <span className="text-slate-300">—</span>}
@@ -107,11 +121,6 @@ export function Transactions() {
                     <td className="px-5 py-3 text-slate-500">{formatDateTime(t.createdAt)}</td>
                     <td className="px-5 py-3 text-right">
                       <span className="font-semibold text-navy-950">{formatCurrency(t.total)}</span>
-                      {!!t.discountAmount && (
-                        <span className="ml-2">
-                          <Badge tone="discount">-{formatCurrency(t.discountAmount)}</Badge>
-                        </span>
-                      )}
                     </td>
                     <td className="px-5 py-3 text-right">
                       <button
