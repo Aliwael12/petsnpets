@@ -6,7 +6,8 @@ import { useProducts } from '../api/catalog';
 import { useSales } from '../api/sales';
 import { useClients } from '../api/clients';
 import { useCreateDiscount, useDiscounts, useRevokeDiscount } from '../api/discounts';
-import { isTodayInBusinessTz } from '../lib/timezone';
+import { useRevenueTimeseries } from '../api/analytics';
+import { isTodayInBusinessTz, todayKey } from '../lib/timezone';
 import { ApiError } from '../api/client';
 import {
   Badge,
@@ -50,7 +51,13 @@ export function Dashboard() {
 
   const lowStock = products.filter((p) => p.kind === 'good' && p.stockQuantity <= p.lowStockThreshold);
   const todaysSales = sales.filter((t) => isTodayInBusinessTz(t.createdAt));
-  const todaysRevenue = todaysSales.reduce((sum, t) => sum + t.total, 0);
+  // Money from the analytics endpoint rather than summing the sales list, so a refund given
+  // today comes off the figure. It self-scopes on the server exactly like the sales list
+  // above (your own sales, and refunds on them, unless you hold analytics:all).
+  const { data: todaySeries } = useRevenueTimeseries({ from: todayKey(), to: todayKey() });
+  const todaysGross = todaySeries?.[0]?.total ?? todaysSales.reduce((sum, t) => sum + t.total, 0);
+  const todaysRefunds = todaySeries?.[0]?.refunds ?? 0;
+  const todaysRevenue = todaysGross - todaysRefunds;
   const recent = [...sales].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, 8);
 
   const submitDiscount = () => {
@@ -109,7 +116,9 @@ export function Dashboard() {
         <StatTile
           label={seesEveryone ? "Today's sales" : 'Your sales today'}
           value={formatCurrency(todaysRevenue)}
-          hint={`${todaysSales.length} transaction${todaysSales.length === 1 ? '' : 's'}`}
+          hint={`${todaysSales.length} transaction${todaysSales.length === 1 ? '' : 's'}${
+            todaysRefunds > 0 ? ` · ${formatCurrency(todaysRefunds)} refunded` : ''
+          }`}
           tone="gold"
         />
         <StatTile label="Products low on stock" value={String(lowStock.length)} tone={lowStock.length ? 'warn' : 'default'} />

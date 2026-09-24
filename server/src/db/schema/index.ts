@@ -3,6 +3,7 @@ export * from './employees';
 export * from './clients';
 export * from './pets';
 export * from './pet-logs';
+export * from './reminders';
 export * from './appointments';
 export * from './expenses';
 export * from './catalog';

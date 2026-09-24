@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useUpcomingPetLogs } from '../api/petLogs';
 import { useAppointments, useUpdateAppointmentStatus } from '../api/appointments';
+import { useCompleteReminder, useReminders } from '../api/reminders';
 import { ApiError } from '../api/client';
 import { businessDayKey, formatSlotTime } from '../lib/timezone';
-import { Badge, Button, Card, CardHeader, EmptyState, StatTile, formatDate } from '../components/ui';
-import type { Appointment, Pet, PetLog } from '../types';
-import { CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Globe, Phone, X } from 'lucide-react';
+import { Badge, Button, Card, CardHeader, EmptyState, Modal, StatTile, formatDate } from '../components/ui';
+import { AddReminderModal } from '../components/AddReminderModal';
+import type { Appointment, Pet, PetLog, Reminder } from '../types';
+import { BellPlus, CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Globe, Phone, X } from 'lucide-react';
 
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH_NAMES = [
@@ -56,12 +58,18 @@ function buildMonthGrid(year: number, month: number): GridCell[] {
  * before rendering — the cell doesn't care which source an entry came from. */
 type CalEvent =
   | { kind: 'reminder'; id: string; dateKey: string; label: string; sub: string; href: string; overdue: boolean }
+  | { kind: 'task'; id: string; dateKey: string; label: string; sub: string; overdue: boolean; reminder: Reminder }
   | { kind: 'appointment'; id: string; dateKey: string; label: string; sub: string; status: Appointment['status'] };
 
 export function Calendar() {
   const { data: upcomingRaw = [] } = useUpcomingPetLogs();
   const { data: appointments = [] } = useAppointments();
+  const { data: openReminders = [] } = useReminders();
   const updateStatus = useUpdateAppointmentStatus();
+  const completeReminder = useCompleteReminder();
+
+  const [addReminderOpen, setAddReminderOpen] = useState(false);
+  const [viewing, setViewing] = useState<Reminder | null>(null);
 
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
@@ -88,6 +96,31 @@ export function Calendar() {
     [upcomingRaw, todayKey],
   );
 
+  const tasks = useMemo(
+    () =>
+      openReminders.map((r) => ({
+        kind: 'task' as const,
+        id: r.id,
+        dateKey: businessDayKey(r.dueAt),
+        label: r.pet?.name ?? r.client?.name ?? 'Reminder',
+        sub: r.description,
+        overdue: businessDayKey(r.dueAt) < todayKey,
+        ownerName: r.client?.name ?? 'Unknown',
+        reminder: r,
+      })),
+    [openReminders, todayKey],
+  );
+
+  const markDone = (reminder: Reminder) => {
+    completeReminder.mutate(reminder.id, {
+      onSuccess: () => {
+        toast.success('Reminder marked done');
+        setViewing(null);
+      },
+      onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not update the reminder'),
+    });
+  };
+
   // Cancelled bookings stay in the database as an audit trail but must not clutter the
   // grid — the calendar shows what is actually happening, not what was called off.
   const liveAppointments = useMemo(() => appointments.filter((a) => a.status !== 'cancelled'), [appointments]);
@@ -100,6 +133,7 @@ export function Calendar() {
       map.set(e.dateKey, list);
     };
     for (const r of reminders) push(r);
+    for (const t of tasks) push(t);
     for (const a of liveAppointments) {
       push({
         kind: 'appointment',
@@ -111,7 +145,7 @@ export function Calendar() {
       });
     }
     return map;
-  }, [reminders, liveAppointments]);
+  }, [reminders, tasks, liveAppointments]);
 
   const pending = useMemo(
     () =>
@@ -121,12 +155,12 @@ export function Calendar() {
     [appointments],
   );
 
-  const overdue = reminders.filter((r) => r.overdue).sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+  const overdue = [...reminders, ...tasks].filter((r) => r.overdue).sort((a, b) => a.dateKey.localeCompare(b.dateKey));
   const bookedThisWeek = liveAppointments.filter((a) => {
     const k = businessDayKey(a.requestedAt);
     return k >= todayKey && k <= in7DaysKey;
   }).length;
-  const dueThisWeek = reminders.filter((r) => r.dateKey >= todayKey && r.dateKey <= in7DaysKey).length;
+  const dueThisWeek = [...reminders, ...tasks].filter((r) => r.dateKey >= todayKey && r.dateKey <= in7DaysKey).length;
 
   const grid = useMemo(() => buildMonthGrid(cursor.year, cursor.month), [cursor]);
 
@@ -154,9 +188,14 @@ export function Calendar() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-semibold text-navy-950">Calendar</h1>
-        <p className="text-sm text-slate-500">Website bookings and pet reminders coming due</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-navy-950">Calendar</h1>
+          <p className="text-sm text-slate-500">Website bookings and pet reminders coming due</p>
+        </div>
+        <Button onClick={() => setAddReminderOpen(true)}>
+          <BellPlus size={16} /> Add reminder
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -235,6 +274,17 @@ export function Calendar() {
                         >
                           {e.label}
                         </span>
+                      ) : e.kind === 'task' ? (
+                        <button
+                          key={e.id}
+                          onClick={() => setViewing(e.reminder)}
+                          title={`${e.label} · ${e.sub}`}
+                          className={`truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium ${
+                            e.overdue ? 'bg-red-100 text-red-700' : 'bg-sky-100 text-sky-700'
+                          }`}
+                        >
+                          {e.label}
+                        </button>
                       ) : (
                         <Link
                           key={e.id}
@@ -312,25 +362,82 @@ export function Calendar() {
               <EmptyState title="Nothing overdue" subtitle="Every reminder is on schedule" />
             ) : (
               <div className="max-h-[320px] divide-y divide-slate-100 overflow-y-auto">
-                {overdue.map((r) => (
-                  <Link key={r.id} to={r.href} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
-                      <CalendarClock size={16} />
+                {overdue.map((r) => {
+                  const body = (
+                    <>
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+                        <CalendarClock size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-navy-950">
+                          {r.label} <span className="text-slate-400">· {r.ownerName}</span>
+                        </p>
+                        <p className="truncate text-xs text-slate-400">{r.sub}</p>
+                        <Badge tone="low">Was due {formatDate(`${r.dateKey}T00:00:00Z`)}</Badge>
+                      </div>
+                    </>
+                  );
+                  return r.kind === 'task' ? (
+                    <div key={r.id} className="flex items-center gap-3 px-5 py-3">
+                      {body}
+                      <button
+                        onClick={() => markDone(r.reminder)}
+                        disabled={completeReminder.isPending}
+                        className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-navy-700 hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        Done
+                      </button>
                     </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-navy-950">
-                        {r.label} <span className="text-slate-400">· {r.ownerName}</span>
-                      </p>
-                      <p className="truncate text-xs text-slate-400">{r.sub}</p>
-                      <Badge tone="low">Was due {formatDate(`${r.dateKey}T00:00:00Z`)}</Badge>
-                    </div>
-                  </Link>
-                ))}
+                  ) : (
+                    <Link key={r.id} to={r.href} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50">
+                      {body}
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </Card>
         </div>
       </div>
+
+      {addReminderOpen && <AddReminderModal onClose={() => setAddReminderOpen(false)} />}
+
+      {viewing && (
+        <Modal title="Reminder" onClose={() => setViewing(null)}>
+          <div className="flex flex-col gap-3 text-sm">
+            <div>
+              <p className="text-xs font-medium text-slate-500">What</p>
+              <p className="text-navy-950">{viewing.description}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs font-medium text-slate-500">Customer</p>
+                <p className="text-navy-950">{viewing.client?.name ?? 'Unknown'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Pet</p>
+                <p className="text-navy-950">{viewing.pet?.name ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Due</p>
+                <p className="text-navy-950">{formatDate(viewing.dueAt)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Added by</p>
+                <p className="text-navy-950">{viewing.createdByEmployee?.name ?? 'Unknown'}</p>
+              </div>
+            </div>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setViewing(null)}>
+                Close
+              </Button>
+              <Button onClick={() => markDone(viewing)} disabled={completeReminder.isPending}>
+                <Check size={14} /> Mark done
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -20,16 +20,16 @@ interface CartLine {
 
 const PAYMENT_OPTIONS: PaymentMethod[] = ['cash', 'instapay', 'card'];
 
-/** Deliberately has no pre-selected default and the sale can't be completed without a
- * choice: silently defaulting to cash would fill the dashboard's breakdown with a method
- * nobody actually picked, which is worse than the one extra tap it saves. */
+/** Optional, with no pre-selected default: silently defaulting to cash would fill the
+ * dashboard's breakdown with a method nobody picked. Left blank, the sale is recorded as
+ * "Not recorded". Tapping the selected method again clears it. */
 function PaymentPicker({
   value,
   onChange,
   label,
 }: {
   value: PaymentMethod | '';
-  onChange: (next: PaymentMethod) => void;
+  onChange: (next: PaymentMethod | '') => void;
   label: string;
 }) {
   return (
@@ -40,7 +40,7 @@ function PaymentPicker({
           <button
             key={method}
             type="button"
-            onClick={() => onChange(method)}
+            onClick={() => onChange(value === method ? '' : method)}
             className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
               value === method ? 'border-navy-800 bg-navy-800 text-white' : 'border-slate-200 text-slate-600 hover:border-navy-400'
             }`}
@@ -114,15 +114,12 @@ export function POS() {
     [products, search],
   );
 
+  // No stock cap: the recorded count is often behind what's physically on the shelf, and
+  // the server logs any shortfall as a stock adjustment rather than refusing the sale.
   const addToCart = (productId: string) => {
     setCart((prev) => {
       const existing = prev.find((l) => l.productId === productId);
-      const product = products.find((p) => p.id === productId)!;
       if (existing) {
-        if (product.category !== 'service' && existing.quantity >= product.stockQuantity) {
-          toast.error('Not enough stock');
-          return prev;
-        }
         return prev.map((l) => (l.productId === productId ? { ...l, quantity: l.quantity + 1 } : l));
       }
       return [...prev, { productId, quantity: 1 }];
@@ -132,16 +129,7 @@ export function POS() {
   const changeQty = (productId: string, delta: number) => {
     setCart((prev) =>
       prev
-        .map((l) => {
-          if (l.productId !== productId) return l;
-          const product = products.find((p) => p.id === productId)!;
-          const nextQty = l.quantity + delta;
-          if (product.category !== 'service' && nextQty > product.stockQuantity) {
-            toast.error('Not enough stock');
-            return l;
-          }
-          return { ...l, quantity: nextQty };
-        })
+        .map((l) => (l.productId === productId ? { ...l, quantity: l.quantity + delta } : l))
         .filter((l) => l.quantity > 0),
     );
   };
@@ -212,21 +200,13 @@ export function POS() {
       toast.error('Cart is empty');
       return;
     }
-    if (!clientId) {
-      toast.error('Search for or add a customer first');
-      return;
-    }
-    if (!paymentMethod) {
-      toast.error('Choose how the customer paid');
-      return;
-    }
     if (!employee) return;
     checkout.mutate(
       {
-        clientId,
+        clientId: clientId || undefined,
         items: cartDetails.map((l) => ({ productId: l.productId, quantity: l.quantity })),
         discountId: selectedDiscount?.id,
-        paymentMethod,
+        paymentMethod: paymentMethod || undefined,
         soldBy: soldBy || undefined,
       },
       {
@@ -369,7 +349,9 @@ export function POS() {
             )}
 
             <div className="border-t border-slate-100 px-5 py-4">
-              <label className="mb-1 block text-xs font-medium text-slate-500">Customer *</label>
+              <label className="mb-1 block text-xs font-medium text-slate-500">
+                Customer <span className="font-normal text-slate-400">(optional)</span>
+              </label>
               {selectedClient ? (
                 <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
@@ -455,7 +437,7 @@ export function POS() {
                 </div>
               )}
 
-              <PaymentPicker value={paymentMethod} onChange={setPaymentMethod} label="Paid with" />
+              <PaymentPicker value={paymentMethod} onChange={setPaymentMethod} label="Paid with (optional)" />
 
               <div className="mt-4 flex flex-col gap-1 text-sm">
                 <div className="flex items-center justify-between">
@@ -474,7 +456,7 @@ export function POS() {
                 </div>
               </div>
 
-              <Button className="mt-4 w-full" onClick={completeSaleHandler} disabled={checkout.isPending || cart.length === 0 || !clientId || !paymentMethod}>
+              <Button className="mt-4 w-full" onClick={completeSaleHandler} disabled={checkout.isPending || cart.length === 0}>
                 {checkout.isPending ? 'Processing…' : 'Complete sale & open invoice'}
               </Button>
             </div>

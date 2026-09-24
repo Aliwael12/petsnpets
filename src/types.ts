@@ -131,6 +131,22 @@ export interface PetLog {
   pet?: Pet & { client?: Client };
 }
 
+/** A follow-up to-do for a client (and optionally one of their pets), shown on the calendar
+ *  until someone marks it done. Distinct from a pet log's nextDueDate. */
+export interface Reminder {
+  id: string;
+  clientId: string;
+  petId?: string | null;
+  description: string;
+  dueAt: string;
+  createdBy: string;
+  createdAt: string;
+  completedAt?: string | null;
+  client?: { id: string; name: string };
+  pet?: { id: string; name: string } | null;
+  createdByEmployee?: { id: string; name: string };
+}
+
 export type AppointmentStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed';
 
 export interface Appointment {

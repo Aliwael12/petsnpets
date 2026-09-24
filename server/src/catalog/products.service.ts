@@ -115,6 +115,8 @@ export class ProductsService {
     // The pool is 15-deep locally, so this was invisible in dev.
     const nextKind = dto.category && dto.category !== before.category ? (await this.categories.resolveActiveOrThrow(dto.category)).kind : before.kind;
 
+    const { stockQuantity: targetStock, ...fields } = dto;
+
     return this.db.transaction(async (tx) => {
       const becomingService = nextKind === 'service' && before.kind !== 'service';
       if (becomingService && before.stockQuantity !== 0) {
@@ -127,12 +129,17 @@ export class ProductsService {
         });
       }
       const patch = {
-        ...dto,
+        ...fields,
         kind: nextKind,
         ...(becomingService ? { lowStockThreshold: 0 } : {}),
       };
 
-      const [after] = await tx.update(products).set(patch).where(eq(products.id, id)).returning();
+      let [after] = await tx.update(products).set(patch).where(eq(products.id, id)).returning();
+      // After the kind change, so a service being re-categorised as a good can take a count.
+      if (targetStock !== undefined && nextKind === 'good' && targetStock !== after.stockQuantity) {
+        await this.inventory.setQuantity(tx, id, targetStock, actor.id);
+        [after] = await tx.select().from(products).where(eq(products.id, id));
+      }
       await this.audit.log(tx, {
         actorId: actor.id,
         action: 'product.update',

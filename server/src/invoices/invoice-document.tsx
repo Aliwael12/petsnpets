@@ -1,6 +1,5 @@
 import type * as ReactPdf from '@react-pdf/renderer';
 import { CLINIC_LOGO_DATA_URI } from './clinic-logo';
-import { ROLE_LABELS } from './role-labels';
 
 // Deliberately no top-level `import { Document, ... } from '@react-pdf/renderer'`: that
 // package is ESM-only (no CJS entry point at all — see its package.json), and CommonJS
@@ -62,7 +61,7 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
     return discount.kind === 'percent' ? `Discount (${discount.value}%)` : 'Discount';
   }
 
-  return function InvoiceDocument({ transaction, soldByName, soldByRole }: InvoiceDocProps) {
+  return function InvoiceDocument({ transaction, soldByName }: InvoiceDocProps) {
     const invoiceNo = `INV-${transaction.invoiceYear}-${String(transaction.invoiceNo).padStart(5, '0')}`;
     const client = transaction.client;
     const pets = client?.pets ?? [];
@@ -97,7 +96,6 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Served by</Text>
             <Text>{soldByName}</Text>
-            <Text style={styles.subLine}>{ROLE_LABELS[soldByRole]}</Text>
           </View>
 
           <View style={styles.table}>
@@ -196,5 +194,4 @@ export interface InvoiceDocProps {
     } | null;
   };
   soldByName: string;
-  soldByRole: 'admin' | 'doctor' | 'nurse' | 'cashier';
 }

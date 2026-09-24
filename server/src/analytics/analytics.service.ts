@@ -132,10 +132,14 @@ export class AnalyticsService {
       ),
       rf as (
         select (r.created_at at time zone ${this.tz})::date as d, sum(r.total)::bigint as amt
-        from refunds r, unit
+        from refunds r
+        -- A refund comes off the income of whoever made the SALE, not whoever happened to
+        -- process the refund — otherwise a doctor's own figure would never drop when one of
+        -- their sales is returned at the till.
+        join transactions rt on rt.id = r.transaction_id, unit
         where r.created_at >= (unit.d_from::timestamp at time zone ${this.tz})
           and r.created_at <  ((unit.d_to + 1)::timestamp at time zone ${this.tz})
-          ${this.scoped(rawSql`r.refunded_by`, scopeToEmployeeId)}
+          ${this.scoped(rawSql`rt.sold_by`, scopeToEmployeeId)}
         group by 1
       ),
       so as (
@@ -186,16 +190,13 @@ export class AnalyticsService {
   async bestSellers(range: DayRange, scopeToEmployeeId: string | null = null, limit = 8) {
     const rows = await this.db.execute<{ id: string; name: string; quantity: number; revenue: string | number }>(rawSql`
       select p.id, p.name,
-             sum(ti.quantity)::int as quantity,
-             sum(ti.quantity * ti.unit_price)::bigint as revenue
-      from transaction_items ti
-      -- transaction_items has no date column of its own; the sale's instant lives on the
-      -- parent row. transaction_id is NOT NULL with an FK, so this join is strictly 1:1
-      -- and cannot change the unfiltered numbers.
-      join transactions t on t.id = ti.transaction_id
-      join products p on p.id = ti.product_id
-      where true ${this.ts(rawSql`t.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
+             sum(x.qty)::int as quantity,
+             sum(x.amt)::bigint as revenue
+      from ${this.netLines(range, scopeToEmployeeId)} x
+      join products p on p.id = x.product_id
       group by p.id, p.name
+      -- A product whose every sale in the window was returned hasn't "sold" at all.
+      having sum(x.qty) > 0
       order by revenue desc
       limit ${limit}
     `);
@@ -203,14 +204,23 @@ export class AnalyticsService {
   }
 
   async revenueByEmployee(range: DayRange) {
-    // Employees with no sales in the range drop out entirely, exactly as they do from the
-    // all-time list today. Deliberately not a right join.
+    // Credited to whoever made the sale, net of refunds on those sales (dated by the refund).
+    // Employees with nothing in the range drop out entirely. Deliberately not a right join.
     const rows = await this.db.execute<{ id: string; name: string; revenue: string | number }>(rawSql`
-      select e.id, e.name, sum(t.total)::bigint as revenue
-      from transactions t
-      join employees e on e.id = t.sold_by
-      where true ${this.ts(rawSql`t.created_at`, range)}
+      select e.id, e.name, sum(x.amt)::bigint as revenue
+      from (
+        select t.sold_by as employee_id, t.total as amt
+        from transactions t
+        where true ${this.ts(rawSql`t.created_at`, range)}
+        union all
+        select t.sold_by, -r.total
+        from refunds r
+        join transactions t on t.id = r.transaction_id
+        where true ${this.ts(rawSql`r.created_at`, range)}
+      ) x
+      join employees e on e.id = x.employee_id
       group by e.id, e.name
+      having sum(x.amt) <> 0
       order by revenue desc
     `);
     return rows.map((r) => ({ ...r, revenue: num(r.revenue) }));
@@ -218,26 +228,26 @@ export class AnalyticsService {
 
   async revenueByCategory(range: DayRange, scopeToEmployeeId: string | null = null) {
     const rows = await this.db.execute<{ category: string; value: string | number }>(rawSql`
-      select p.category, sum(ti.quantity * ti.unit_price)::bigint as value
-      from transaction_items ti
-      join transactions t on t.id = ti.transaction_id
-      join products p on p.id = ti.product_id
-      where true ${this.ts(rawSql`t.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
+      select p.category, sum(x.amt)::bigint as value
+      from ${this.netLines(range, scopeToEmployeeId)} x
+      join products p on p.id = x.product_id
       group by p.category
+      -- A pie can't draw a negative slice; a category refunded down to nothing just drops out.
+      having sum(x.amt) > 0
     `);
     return rows.map((r) => ({ ...r, value: num(r.value) }));
   }
 
-  /** "Clinic services" vs. "pet shop" — the split is purely `products.category = 'service'`
-   * vs. everything else, matching how catalog.products.service.dto derives `kind`. */
+  /** "Clinic services" vs. "pet shop" — split on the product's `kind`, which comes from its
+   *  category row. (Categories are named rows now, e.g. 'clinic-services', so matching on the
+   *  literal category name 'service' put every sale under "shop".) */
   async revenueSplit(kind: 'service' | 'shop', range: DayRange, scopeToEmployeeId: string | null = null) {
     const isService = kind === 'service';
     const raw = await this.db.execute<{ id: string; name: string; revenue: string | number }>(rawSql`
-      select p.id, p.name, sum(ti.quantity * ti.unit_price)::bigint as revenue
-      from transaction_items ti
-      join transactions t on t.id = ti.transaction_id
-      join products p on p.id = ti.product_id
-      where (p.category = 'service') = ${isService} ${this.ts(rawSql`t.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
+      select p.id, p.name, sum(x.amt)::bigint as revenue
+      from ${this.netLines(range, scopeToEmployeeId)} x
+      join products p on p.id = x.product_id
+      where (p.kind = 'service') = ${isService}
       group by p.id, p.name
       order by revenue desc
     `);
@@ -245,7 +255,29 @@ export class AnalyticsService {
     // '12345' + '6789' is '123456789'.
     const rows = raw.map((r) => ({ ...r, revenue: num(r.revenue) }));
     const total = rows.reduce((sum, r) => sum + r.revenue, 0);
-    return { total, items: rows.slice(0, 8) };
+    return { total, items: rows.filter((r) => r.revenue > 0).slice(0, 8) };
+  }
+
+  /**
+   * Every line sold in the window as +quantity/+amount, and every line refunded in the window
+   * as −quantity/−amount, so per-product figures come out net of returns. Refunds are dated by
+   * when they happened (the same rule the Income cards use) and credited against the seller of
+   * the original sale. Both sides use the list price snapshotted on the line, so the two cancel
+   * exactly; the invoice-level discount lives only in transactions.total / refunds.total.
+   */
+  private netLines(range: DayRange, scopeToEmployeeId: string | null): SQL {
+    return rawSql`(
+      select ti.product_id, ti.quantity as qty, (ti.quantity * ti.unit_price)::bigint as amt
+      from transaction_items ti
+      join transactions t on t.id = ti.transaction_id
+      where true ${this.ts(rawSql`t.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
+      union all
+      select ri.product_id, -ri.quantity, -(ri.quantity * ri.unit_price)::bigint
+      from refund_items ri
+      join refunds r on r.id = ri.refund_id
+      join transactions t on t.id = r.transaction_id
+      where true ${this.ts(rawSql`r.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
+    )`;
   }
 
   /**

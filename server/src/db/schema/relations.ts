@@ -3,6 +3,7 @@ import { employees } from './employees';
 import { clients, clientPhones } from './clients';
 import { pets, petPhones } from './pets';
 import { petLogs } from './pet-logs';
+import { reminders } from './reminders';
 import { products, productCategories } from './catalog';
 import { suppliers } from './suppliers';
 import { supplierOrders } from './supplier-orders';
@@ -147,6 +148,12 @@ export const appointmentsRelations = relations(appointments, ({ one }) => ({
 
 export const productCategoriesRelations = relations(productCategories, ({ many }) => ({
   products: many(products),
+}));
+
+export const remindersRelations = relations(reminders, ({ one }) => ({
+  client: one(clients, { fields: [reminders.clientId], references: [clients.id] }),
+  pet: one(pets, { fields: [reminders.petId], references: [pets.id] }),
+  createdByEmployee: one(employees, { fields: [reminders.createdBy], references: [employees.id] }),
 }));
 
 export const expensesRelations = relations(expenses, ({ one }) => ({

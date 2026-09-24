@@ -41,7 +41,7 @@ export class InvoicesService {
       where: eq(transactions.id, transactionId),
       with: {
         items: { with: { product: { columns: { name: true } } } },
-        soldByEmployee: { columns: { name: true, role: true } },
+        soldByEmployee: { columns: { name: true } },
         discount: { columns: { kind: true, value: true, note: true } },
         client: {
           columns: { legacyId: true },
@@ -82,7 +82,6 @@ export class InvoicesService {
             : null,
         }}
         soldByName={txn.soldByEmployee.name}
-        soldByRole={txn.soldByEmployee.role}
       />,
     ).toBuffer();
 

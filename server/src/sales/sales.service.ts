@@ -13,6 +13,9 @@ import { DiscountsService } from '../discounts/discounts.service';
 import type { Actor } from '../auth/auth.types';
 import type { CreateSaleDto, ListSalesQueryDto } from './dto/sale.dto';
 
+/** What an unlinked sale is billed to, on the invoice and in every list. */
+const WALK_IN_CUSTOMER_NAME = 'Walk-in customer';
+
 @Injectable()
 export class SalesService {
   constructor(
@@ -91,9 +94,14 @@ export class SalesService {
       // productId/quantity by construction (see CreateSaleDto).
       const subtotal = dto.items.reduce((sum, line) => sum + byId.get(line.productId)!.unitPrice * line.quantity, 0);
 
-      const [client] = await tx.select({ name: clients.name }).from(clients).where(eq(clients.id, dto.clientId)).limit(1);
-      if (!client) throw new NotFoundAppError('Client', dto.clientId);
-      const customerName = client.name;
+      let customerName = WALK_IN_CUSTOMER_NAME;
+      if (dto.clientId) {
+        const [client] = await tx.select({ name: clients.name }).from(clients).where(eq(clients.id, dto.clientId)).limit(1);
+        if (!client) throw new NotFoundAppError('Client', dto.clientId);
+        customerName = client.name;
+      } else if (dto.discountId) {
+        throw new ValidationAppError('A discount belongs to a client — pick the customer to apply it.');
+      }
 
       const soldBy = await this.resolveSoldBy(tx, dto.soldBy, actor);
 
@@ -151,6 +159,7 @@ export class SalesService {
           reason: 'sale' as const,
           refId: txn.id,
           actorId: actor.id,
+          allowOversell: true,
         })),
       );
 

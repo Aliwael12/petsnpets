@@ -73,20 +73,25 @@ export function Products() {
       return;
     }
     const isService = isServiceCategory(form.category);
+    const stockQuantity = isService ? 0 : Number(form.stockQuantity) || 0;
     const payload = {
       name: form.name.trim(),
       brand: form.brand.trim() || undefined,
       category: form.category,
       sku: form.sku.trim(),
       unitPrice: Math.round((Number(form.unitPrice) || 0) * 100),
-      stockQuantity: isService ? 0 : Number(form.stockQuantity) || 0,
+      stockQuantity,
       lowStockThreshold: isService ? 0 : Number(form.lowStockThreshold) || 0,
     };
     const onError = (err: unknown) => toast.error(err instanceof ApiError ? err.message : 'Something went wrong');
 
     if (editing) {
+      // Stock is only sent when it was actually changed here — otherwise saving a price edit
+      // would reset the count to whatever it was when the modal opened, undoing any sale
+      // rung up in the meantime.
+      const patch = stockQuantity !== editing.stockQuantity ? payload : { ...payload, stockQuantity: undefined };
       updateProduct.mutate(
-        { id: editing.id, patch: payload },
+        { id: editing.id, patch },
         {
           onSuccess: () => {
             toast.success('Product updated');
@@ -241,10 +246,9 @@ export function Products() {
                     <label className="mb-1 block text-xs font-medium text-slate-500">Stock</label>
                     <Input
                       type="number"
+                      min="0"
                       value={form.stockQuantity}
                       onChange={(e) => setForm({ ...form, stockQuantity: e.target.value })}
-                      disabled={!!editing}
-                      title={editing ? 'Stock changes go through sales, refunds and shipments — not a direct edit.' : undefined}
                     />
                   </div>
                   <div>

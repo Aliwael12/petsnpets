@@ -11,18 +11,17 @@ export const saleLineSchema = z.object({
 export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
 
 export const createSaleSchema = z.object({
-  // Every sale must be linked to a client — see SalesService.executeCheckout, which
-  // derives customerName from the client record rather than accepting free text.
-  clientId: z.uuid(),
+  /** Optional: a walk-in who doesn't want to leave their details can still be rung up.
+   *  When given, customerName is derived from the client record, never free text — see
+   *  SalesService.executeCheckout. A discount still requires one (it belongs to a client). */
+  clientId: z.uuid().optional(),
   items: z.array(saleLineSchema).min(1),
   discountId: z.uuid().optional(),
   /** Who actually made the sale, when that's not whoever is logged in — e.g. a cashier
    * ringing up a sale on a doctor's behalf. Omitted means "the person checking out".
    * Only admin/cashier may set this to someone else — see SalesService.executeCheckout. */
   soldBy: z.uuid().optional(),
-  /** Optional at the API even though the POS makes it a required choice: a stale browser tab
-   * that hasn't reloaded must not start 400-ing mid-checkout at a live till. Omitted means
-   * "not recorded", the same as historical rows. */
+  /** Omitted means "not recorded" — shown as such in the payment breakdowns. */
   paymentMethod: paymentMethodSchema.optional(),
 });
 export type CreateSaleDto = z.infer<typeof createSaleSchema>;

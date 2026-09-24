@@ -33,7 +33,7 @@ export function useSales(filters: SalesFilters = {}) {
 }
 
 export interface CheckoutInput {
-  clientId: string;
+  clientId?: string;
   items: { productId: string; quantity: number }[];
   discountId?: string;
   paymentMethod?: PaymentMethod;

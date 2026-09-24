@@ -86,7 +86,8 @@ export function Analytics() {
   const { data: employeeSummary } = useEmployeeSummary(employeeId || null, range);
 
   const spansYears = timeseries.length > 0 && timeseries[0].date.slice(0, 4) !== timeseries[timeseries.length - 1].endDate.slice(0, 4);
-  const incomeOverTime = timeseries.map((d) => ({ label: bucketLabel(d.date, d.endDate, spansYears), total: d.total }));
+  // Net of refunds, dated by the refund — the same rule as the Income cards.
+  const incomeOverTime = timeseries.map((d) => ({ label: bucketLabel(d.date, d.endDate, spansYears), total: d.total - d.refunds }));
   const xInterval = Math.max(0, Math.floor(incomeOverTime.length / 8));
   const revenueByEmployee = revenueByEmployeeRaw.map((e) => ({ name: shortEmployeeName(e.name), revenue: e.revenue }));
   const revenueByCategory = revenueByCategoryRaw.map((c) => ({ name: c.category, value: c.value }));
@@ -114,7 +115,7 @@ export function Analytics() {
               <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={xInterval} stroke="#94a3b8" />
               <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `${v / 100000}k`} />
               <Tooltip formatter={(v) => formatCurrency(Number(v))} />
-              <Line type="monotone" dataKey="total" name="Revenue" stroke="#101c4d" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="total" name="Income" stroke="#101c4d" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>

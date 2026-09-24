@@ -12,6 +12,11 @@ export interface MovementRequest {
   refId?: string;
   actorId: string;
   note?: string;
+  /** Sales only. The till may sell units the system thinks it doesn't have — the recorded
+   *  count is what's wrong, not the sale — so instead of refusing, the shortfall is logged
+   *  as an 'adjustment' first and the sale then brings stock to zero. Stock itself still
+   *  never goes negative (products_stock_non_negative enforces that in the database). */
+  allowOversell?: boolean;
 }
 
 /**
@@ -58,9 +63,20 @@ export class InventoryService {
       if (product.kind === 'service') continue; // unlimited — never ledgered, never checked
 
       const current = newQuantityById.get(product.id) ?? product.stockQuantity;
-      const next = current + req.delta;
+      let next = current + req.delta;
       if (next < 0) {
-        throw new InsufficientStockError(product.id, -req.delta, current);
+        if (!req.allowOversell) {
+          throw new InsufficientStockError(product.id, -req.delta, current);
+        }
+        movementRows.push({
+          productId: req.productId,
+          delta: -next,
+          reason: 'adjustment',
+          refId: req.refId,
+          actorId: req.actorId,
+          note: 'Sold more than the recorded stock — count topped up to match',
+        });
+        next = 0;
       }
       newQuantityById.set(product.id, next);
 
@@ -85,6 +101,21 @@ export class InventoryService {
 
   async applyMovement(tx: Database, request: MovementRequest): Promise<void> {
     await this.applyMovements(tx, [request]);
+  }
+
+  /** Sets a good's stock to an absolute count (a manual correction from the Products page)
+   *  by logging the difference as an 'adjustment', so the ledger still sums to the new
+   *  number. The delta comes from the row as read under lock, not from the editor's screen. */
+  async setQuantity(tx: Database, productId: string, target: number, actorId: string): Promise<void> {
+    const [row] = await tx
+      .select({ stockQuantity: products.stockQuantity, kind: products.kind })
+      .from(products)
+      .where(eq(products.id, productId))
+      .for('update');
+    if (!row || row.kind === 'service') return;
+    const delta = target - row.stockQuantity;
+    if (delta === 0) return;
+    await this.applyMovement(tx, { productId, delta, reason: 'adjustment', actorId, note: 'Stock edited on the Products page' });
   }
 
   async listMovements(productId: string, limit = 100) {

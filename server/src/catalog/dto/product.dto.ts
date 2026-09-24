@@ -25,6 +25,8 @@ export const updateProductSchema = z.object({
   category: categoryNameSchema.optional(),
   sku: z.string().trim().min(1).max(60).optional(),
   unitPrice: z.number().int().nonnegative().optional(),
+  /** Applied as a ledger adjustment, never written to products directly — see ProductsService.update. */
+  stockQuantity: z.number().int().nonnegative().optional(),
   lowStockThreshold: z.number().int().nonnegative().optional(),
   active: z.boolean().optional(),
 });
