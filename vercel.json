@@ -1,4 +1,5 @@
 {
+  "regions": ["dub1"],
   "installCommand": "npm install && npm install --prefix server",
   "buildCommand": "npm run build --prefix server && npm run build",
   "functions": {
