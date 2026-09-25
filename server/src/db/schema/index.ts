@@ -4,6 +4,7 @@ export * from './clients';
 export * from './pets';
 export * from './pet-logs';
 export * from './reminders';
+export * from './boardings';
 export * from './appointments';
 export * from './expenses';
 export * from './catalog';

@@ -20,6 +20,7 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/clients', label: 'Clients', defaultRoles: ['admin', 'doctor', 'nurse'] },
   { path: '/pet-logs', label: 'Pet Logs', defaultRoles: ['admin', 'doctor', 'nurse'] },
   { path: '/calendar', label: 'Calendar', defaultRoles: ['admin', 'doctor', 'nurse'] },
+  { path: '/boarding', label: 'Boarding', defaultRoles: ['admin', 'doctor', 'nurse', 'cashier'] },
   { path: '/price-checker', label: 'Price Checker', defaultRoles: ['admin', 'doctor', 'nurse', 'cashier'] },
   { path: '/employees', label: 'Employees', defaultRoles: ['admin'], requires: 'employees:manage' },
   { path: '/analytics', label: 'Analytics', defaultRoles: ['admin', 'doctor'] },

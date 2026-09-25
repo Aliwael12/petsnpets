@@ -18,6 +18,7 @@ import { Employees } from './pages/Employees';
 import { Analytics } from './pages/Analytics';
 import { MoneyInOut } from './pages/MoneyInOut';
 import { Expenses } from './pages/Expenses';
+import { Boarding } from './pages/Boarding';
 import { Settings } from './pages/Settings';
 
 function App() {
@@ -117,6 +118,14 @@ function App() {
               element={
                 <RoleGuard path="/analytics">
                   <Analytics />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/boarding"
+              element={
+                <RoleGuard path="/boarding">
+                  <Boarding />
                 </RoleGuard>
               }
             />

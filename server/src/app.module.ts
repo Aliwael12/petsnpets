@@ -18,6 +18,7 @@ import { ClientsModule } from './clients/clients.module';
 import { PetsModule } from './pets/pets.module';
 import { PetLogsModule } from './pet-logs/pet-logs.module';
 import { RemindersModule } from './reminders/reminders.module';
+import { BoardingsModule } from './boardings/boardings.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { SupabaseModule } from './supabase/supabase.module';
@@ -46,6 +47,7 @@ import { validateEnv } from './config/env.validation';
     PetsModule,
     PetLogsModule,
     RemindersModule,
+    BoardingsModule,
     AppointmentsModule,
     ExpensesModule,
     SupabaseModule,

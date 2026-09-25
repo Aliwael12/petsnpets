@@ -20,6 +20,7 @@ export const ALL_FEATURES = [
   '/clients',
   '/pet-logs',
   '/calendar',
+  '/boarding',
   '/price-checker',
   '/analytics',
   '/settings',
@@ -40,6 +41,6 @@ export const DEFAULT_FEATURES_BY_ROLE: Record<Role, Feature[]> = {
   // Settings is available to everyone: its always-available half is "change my own PIN",
   // which every operator needs. The category-management half inside it is separately gated
   // by the categories:manage permission regardless of this flag.
-  nurse: ['/products', '/pos', '/transactions', '/clients', '/pet-logs', '/calendar', '/price-checker', '/settings'],
-  cashier: ['/products', '/pos', '/transactions', '/price-checker', '/settings'],
+  nurse: ['/products', '/pos', '/transactions', '/clients', '/pet-logs', '/calendar', '/boarding', '/price-checker', '/settings'],
+  cashier: ['/products', '/pos', '/transactions', '/boarding', '/price-checker', '/settings'],
 };

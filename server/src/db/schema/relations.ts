@@ -4,6 +4,7 @@ import { clients, clientPhones } from './clients';
 import { pets, petPhones } from './pets';
 import { petLogs } from './pet-logs';
 import { reminders } from './reminders';
+import { boardings } from './boardings';
 import { products, productCategories } from './catalog';
 import { suppliers } from './suppliers';
 import { supplierOrders } from './supplier-orders';
@@ -154,6 +155,12 @@ export const remindersRelations = relations(reminders, ({ one }) => ({
   client: one(clients, { fields: [reminders.clientId], references: [clients.id] }),
   pet: one(pets, { fields: [reminders.petId], references: [pets.id] }),
   createdByEmployee: one(employees, { fields: [reminders.createdBy], references: [employees.id] }),
+}));
+
+export const boardingsRelations = relations(boardings, ({ one }) => ({
+  client: one(clients, { fields: [boardings.clientId], references: [clients.id] }),
+  pet: one(pets, { fields: [boardings.petId], references: [pets.id] }),
+  createdByEmployee: one(employees, { fields: [boardings.createdBy], references: [employees.id] }),
 }));
 
 export const expensesRelations = relations(expenses, ({ one }) => ({

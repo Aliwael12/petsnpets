@@ -147,6 +147,24 @@ export interface Reminder {
   createdByEmployee?: { id: string; name: string };
 }
 
+/** A pet staying at the clinic. Amounts are piastres; what's left is total − paid. Dates are
+ *  plain YYYY-MM-DD calendar days. */
+export interface Boarding {
+  id: string;
+  clientId: string;
+  petId: string;
+  totalAmount: number;
+  paidAmount: number;
+  startDate: string;
+  endDate: string;
+  note?: string | null;
+  createdBy: string;
+  createdAt: string;
+  client?: { id: string; name: string };
+  pet?: { id: string; name: string; species: Species };
+  createdByEmployee?: { id: string; name: string };
+}
+
 export type AppointmentStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed';
 
 export interface Appointment {
