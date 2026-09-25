@@ -7,6 +7,7 @@ import { useSales } from '../api/sales';
 import { useClients } from '../api/clients';
 import { useCreateDiscount, useDiscounts, useRevokeDiscount } from '../api/discounts';
 import { useRevenueTimeseries } from '../api/analytics';
+import { downloadMonthlyReport } from '../api/reports';
 import { isTodayInBusinessTz, todayKey } from '../lib/timezone';
 import { ApiError } from '../api/client';
 import {
@@ -25,7 +26,7 @@ import {
 } from '../components/ui';
 import type { DiscountKind } from '../types';
 import { MoneyOverview } from '../components/MoneyOverview';
-import { AlertTriangle, Plus, X } from 'lucide-react';
+import { AlertTriangle, FileDown, Plus, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const emptyDiscountForm = { clientId: '', kind: 'percent' as DiscountKind, value: '', note: '' };
@@ -48,6 +49,19 @@ export function Dashboard() {
 
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   const [discountForm, setDiscountForm] = useState(emptyDiscountForm);
+  const [exporting, setExporting] = useState(false);
+
+  const exportReport = async () => {
+    setExporting(true);
+    try {
+      await downloadMonthlyReport();
+      toast.success('Monthly report downloaded');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Could not export the report');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const lowStock = products.filter((p) => p.kind === 'good' && p.stockQuantity <= p.lowStockThreshold);
   const todaysSales = sales.filter((t) => isTodayInBusinessTz(t.createdAt));
@@ -94,9 +108,16 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-navy-950">Welcome back, {employee?.name.split(' ')[0]}</h1>
-        <p className="text-sm text-slate-500">Here&apos;s what&apos;s happening at the store today.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-navy-950">Welcome back, {employee?.name.split(' ')[0]}</h1>
+          <p className="text-sm text-slate-500">Here&apos;s what&apos;s happening at the store today.</p>
+        </div>
+        {canSeeMoney && (
+          <Button onClick={exportReport} disabled={exporting}>
+            <FileDown size={15} /> {exporting ? 'Preparing report…' : 'Export this month (PDF)'}
+          </Button>
+        )}
       </div>
 
       {lowStock.length > 0 && (

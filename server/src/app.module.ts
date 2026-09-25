@@ -25,6 +25,7 @@ import { SupabaseModule } from './supabase/supabase.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { EmployeesModule } from './employees/employees.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { ReportsModule } from './reports/reports.module';
 import { validateEnv } from './config/env.validation';
 
 @Module({
@@ -54,6 +55,7 @@ import { validateEnv } from './config/env.validation';
     InvoicesModule,
     EmployeesModule,
     AnalyticsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [

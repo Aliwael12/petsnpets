@@ -8,5 +8,6 @@ import { CatalogModule } from '../catalog/catalog.module';
   imports: [InventoryModule, CatalogModule],
   controllers: [PurchasingController],
   providers: [PurchasingService],
+  exports: [PurchasingService],
 })
 export class PurchasingModule {}
