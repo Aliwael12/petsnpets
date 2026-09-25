@@ -42,12 +42,14 @@ export function Dashboard() {
   // filter is pushed to the API rather than applied here, so the clinic-wide figure is
   // never fetched by someone who isn't allowed to see it.
   const { data: sales = [] } = useSales({ sinceDays: 2, ...(seesEveryone ? {} : { soldBy: employee?.id }) });
-  const { data: clients = [] } = useClients();
   const { data: discounts = [] } = useDiscounts();
   const createDiscount = useCreateDiscount();
   const revokeDiscount = useRevokeDiscount();
 
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
+  // The whole client roster is only needed for the discount picker, so it loads when that
+  // opens rather than on every visit to the landing page.
+  const { data: clients = [], isLoading: clientsLoading } = useClients(undefined, { enabled: discountModalOpen });
   const [discountForm, setDiscountForm] = useState(emptyDiscountForm);
   const [exporting, setExporting] = useState(false);
 
@@ -228,7 +230,7 @@ export function Dashboard() {
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Client</label>
               <Select value={discountForm.clientId} onChange={(e) => setDiscountForm({ ...discountForm, clientId: e.target.value })}>
-                <option value="">Select client</option>
+                <option value="">{clientsLoading ? 'Loading clients…' : 'Select client'}</option>
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}

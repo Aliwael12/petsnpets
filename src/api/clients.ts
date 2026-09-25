@@ -2,11 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from './client';
 import type { Client } from '../types';
 
-export function useClients(search?: string) {
+export function useClients(search?: string, options: { enabled?: boolean } = {}) {
   const qs = search ? `?search=${encodeURIComponent(search)}` : '';
   return useQuery({
     queryKey: ['clients', search ?? ''],
     queryFn: () => api.get<Client[]>(`/clients${qs}`),
+    enabled: options.enabled ?? true,
   });
 }
 
