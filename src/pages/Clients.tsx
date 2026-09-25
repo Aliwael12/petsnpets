@@ -28,7 +28,15 @@ const emptyPetForm = {
 
 export function Clients() {
   const [search, setSearch] = useState('');
-  const { data: clients = [] } = useClients(search);
+  const { data: unsortedClients = [] } = useClients(search);
+  // By client number here; the API's alphabetical order is kept for the pickers elsewhere.
+  const clients = useMemo(
+    () =>
+      [...unsortedClients].sort(
+        (a, b) => (a.legacyId ?? Number.MAX_SAFE_INTEGER) - (b.legacyId ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name),
+      ),
+    [unsortedClients],
+  );
   const { data: employees = [] } = useEmployees();
   const createClient = useCreateClient();
   const updateClient = useUpdateClient();
