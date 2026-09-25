@@ -6,7 +6,7 @@ import { useReminderPets } from '../api/reminders';
 import { ApiError } from '../api/client';
 import { todayKey } from '../lib/timezone';
 import { ClientPicker } from '../components/ClientPicker';
-import { Badge, Button, Card, EmptyState, Input, Modal, Select, StatTile, TabSwitch, formatCurrency, formatDate } from '../components/ui';
+import { Badge, Button, Card, EmptyState, Input, Modal, Select, StatTile, TabSwitch, Textarea, formatCurrency, formatDate } from '../components/ui';
 import type { Boarding as BoardingStay } from '../types';
 
 type Status = 'staying' | 'upcoming' | 'done';
@@ -120,7 +120,7 @@ export function Boarding() {
                     <tr key={s.id}>
                       <td className="px-5 py-3">
                         <p className="font-medium text-navy-950">{s.pet?.name ?? 'Unknown'}</p>
-                        {s.note && <p className="text-xs text-slate-400">{s.note}</p>}
+                        {s.note && <p className="whitespace-pre-line text-xs text-slate-400">{s.note}</p>}
                       </td>
                       <td className="px-5 py-3 text-slate-600">{s.client?.name ?? 'Unknown'}</td>
                       <td className="whitespace-nowrap px-5 py-3 text-slate-600">
@@ -280,8 +280,13 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
         )}
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-500">Note (optional)</label>
-          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Feeds twice a day, on medication" maxLength={500} />
+          <label className="mb-1 block text-xs font-medium text-slate-500">Comments (optional)</label>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. Feeds twice a day, on medication, bring back his blanket"
+            maxLength={500}
+          />
         </div>
 
         <div className="mt-2 flex justify-end gap-2">
