@@ -42,5 +42,5 @@ export const DEFAULT_FEATURES_BY_ROLE: Record<Role, Feature[]> = {
   // which every operator needs. The category-management half inside it is separately gated
   // by the categories:manage permission regardless of this flag.
   nurse: ['/products', '/pos', '/transactions', '/clients', '/pet-logs', '/calendar', '/boarding', '/price-checker', '/settings'],
-  cashier: ['/products', '/pos', '/transactions', '/boarding', '/price-checker', '/settings'],
+  cashier: ['/products', '/pos', '/transactions', '/clients', '/boarding', '/price-checker', '/settings'],
 };

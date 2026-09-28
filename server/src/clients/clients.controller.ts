@@ -18,9 +18,9 @@ import {
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
 
-  // Checkout requires every role — including cashiers — to search for or create the
-  // client a sale is linked to, so list/create override the class-level doctor/nurse
-  // restriction. Editing and deleting client records stays doctor/nurse only.
+  // Every role — cashiers included — can find, open and create clients: checkout links each
+  // sale to one, and any employee may need to pull up a client's page. Editing and deleting
+  // client records stays doctor/nurse only.
   @Get()
   @Roles('doctor', 'nurse', 'cashier')
   list(@Query(new ZodValidationPipe(listClientsQuerySchema)) query: ListClientsQueryDto) {
@@ -28,6 +28,7 @@ export class ClientsController {
   }
 
   @Get(':id')
+  @Roles('doctor', 'nurse', 'cashier')
   get(@Param('id', ParseUUIDPipe) id: string) {
     return this.clients.getOrThrow(id);
   }

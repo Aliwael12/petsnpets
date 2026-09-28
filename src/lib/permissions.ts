@@ -17,7 +17,7 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/products', label: 'Products', defaultRoles: ['admin', 'doctor', 'nurse', 'cashier'] },
   { path: '/pos', label: 'POS', defaultRoles: ['admin', 'doctor', 'nurse', 'cashier'] },
   { path: '/transactions', label: 'Transactions', defaultRoles: ['admin', 'doctor', 'nurse', 'cashier'] },
-  { path: '/clients', label: 'Clients', defaultRoles: ['admin', 'doctor', 'nurse'] },
+  { path: '/clients', label: 'Clients', defaultRoles: ['admin', 'doctor', 'nurse', 'cashier'] },
   { path: '/pet-logs', label: 'Pet Logs', defaultRoles: ['admin', 'doctor', 'nurse'] },
   { path: '/calendar', label: 'Calendar', defaultRoles: ['admin', 'doctor', 'nurse'] },
   { path: '/boarding', label: 'Boarding', defaultRoles: ['admin', 'doctor', 'nurse', 'cashier'] },

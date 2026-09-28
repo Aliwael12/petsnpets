@@ -11,12 +11,16 @@ import { createPetLogSchema, type CreatePetLogDto } from './dto/pet-log.dto';
 export class PetLogsController {
   constructor(private readonly petLogs: PetLogsService) {}
 
+  // Reading a pet's history is open to cashiers too — it's part of a client's page, which
+  // every role can open. Recording a new entry stays with the clinical staff.
   @Get('pet-logs/upcoming')
+  @Roles('doctor', 'nurse', 'cashier')
   upcoming() {
     return this.petLogs.listUpcoming();
   }
 
   @Get('pets/:petId/logs')
+  @Roles('doctor', 'nurse', 'cashier')
   listForPet(@Param('petId', ParseUUIDPipe) petId: string) {
     return this.petLogs.listForPet(petId);
   }

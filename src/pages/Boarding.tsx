@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import { Link } from 'react-router-dom';
 import { Pencil, Plus } from 'lucide-react';
 import { useBoardings, useCreateBoarding, useUpdateBoarding } from '../api/boardings';
+import { useCreatePet } from '../api/pets';
 import { useReminderPets } from '../api/reminders';
 import { ApiError } from '../api/client';
 import { todayKey } from '../lib/timezone';
 import { ClientPicker } from '../components/ClientPicker';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select, StatTile, TabSwitch, Textarea, formatCurrency, formatDate } from '../components/ui';
-import type { Boarding as BoardingStay } from '../types';
+import type { Boarding as BoardingStay, Species } from '../types';
 
 type Status = 'staying' | 'upcoming' | 'done';
 type Filter = Status | 'all';
@@ -122,7 +124,15 @@ export function Boarding() {
                         <p className="font-medium text-navy-950">{s.pet?.name ?? 'Unknown'}</p>
                         {s.note && <p className="whitespace-pre-line text-xs text-slate-400">{s.note}</p>}
                       </td>
-                      <td className="px-5 py-3 text-slate-600">{s.client?.name ?? 'Unknown'}</td>
+                      <td className="px-5 py-3 text-slate-600">
+                        {s.client ? (
+                          <Link to={`/clients?client=${s.clientId}`} className="hover:text-navy-800 hover:underline">
+                            {s.client.name}
+                          </Link>
+                        ) : (
+                          'Unknown'
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-5 py-3 text-slate-600">
                         {showDay(s.startDate)} → {showDay(s.endDate)}
                         <span className="block text-xs text-slate-400">
@@ -167,6 +177,9 @@ export function Boarding() {
 /** EGP typed by a human → piastres, the unit every money field in the API uses. */
 const toPiastres = (egp: string) => Math.round((Number(egp) || 0) * 100);
 
+const SPECIES: Species[] = ['dog', 'cat', 'bird', 'rabbit', 'other'];
+const emptyNewPet = { name: '', species: 'cat' as Species, breed: '' };
+
 function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose: () => void }) {
   const createStay = useCreateBoarding();
   const updateStay = useUpdateBoarding();
@@ -178,8 +191,27 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
   const [startDate, setStartDate] = useState(editing?.startDate ?? todayKey());
   const [endDate, setEndDate] = useState(editing?.endDate ?? '');
   const [note, setNote] = useState(editing?.note ?? '');
+  const [addingPet, setAddingPet] = useState(false);
+  const [newPet, setNewPet] = useState(emptyNewPet);
+  const createPet = useCreatePet();
 
   const { data: pets = [], isLoading: petsLoading } = useReminderPets(editing ? '' : clientId);
+
+  const addPet = () => {
+    if (!newPet.name.trim()) return toast.error('Enter the pet’s name');
+    createPet.mutate(
+      { name: newPet.name.trim(), species: newPet.species, breed: newPet.breed.trim(), clientId, phones: [] },
+      {
+        onSuccess: (pet) => {
+          toast.success(`${pet.name} added`);
+          setPetId(pet.id);
+          setAddingPet(false);
+          setNewPet(emptyNewPet);
+        },
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not add the pet'),
+      },
+    );
+  };
 
   const totalAmount = toPiastres(total);
   const paidAmount = toPiastres(paid);
@@ -233,20 +265,51 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
                 onChange={(id) => {
                   setClientId(id);
                   setPetId('');
+                  setAddingPet(false);
                 }}
               />
             </div>
             {clientId && (
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">Pet</label>
-                <Select value={petId} onChange={(e) => setPetId(e.target.value)} disabled={petsLoading}>
-                  <option value="">{pets.length === 0 && !petsLoading ? 'No pets on file for this client' : 'Select pet'}</option>
-                  {pets.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.species})
-                    </option>
-                  ))}
-                </Select>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-medium text-slate-500">Pet</label>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-navy-700 hover:underline"
+                    onClick={() => setAddingPet((v) => !v)}
+                  >
+                    {addingPet ? 'Choose existing' : '+ New pet'}
+                  </button>
+                </div>
+                {addingPet ? (
+                  <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
+                    <Input placeholder="Pet name" value={newPet.name} onChange={(e) => setNewPet({ ...newPet, name: e.target.value })} />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select value={newPet.species} onChange={(e) => setNewPet({ ...newPet, species: e.target.value as Species })}>
+                        {SPECIES.map((s) => (
+                          <option key={s} value={s}>
+                            {s[0].toUpperCase() + s.slice(1)}
+                          </option>
+                        ))}
+                      </Select>
+                      <Input placeholder="Breed (optional)" value={newPet.breed} onChange={(e) => setNewPet({ ...newPet, breed: e.target.value })} />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button type="button" onClick={addPet} disabled={createPet.isPending}>
+                        {createPet.isPending ? 'Adding…' : 'Add pet'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Select value={petId} onChange={(e) => setPetId(e.target.value)} disabled={petsLoading}>
+                    <option value="">{pets.length === 0 && !petsLoading ? 'No pets on file — add one with + New pet' : 'Select pet'}</option>
+                    {pets.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.species})
+                      </option>
+                    ))}
+                  </Select>
+                )}
               </div>
             )}
           </>

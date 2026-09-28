@@ -33,6 +33,8 @@ export function useCreatePet() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pets'] });
       queryClient.invalidateQueries({ queryKey: ['clients'] });
+      // The per-client pet pickers in the boarding and reminder forms read from here.
+      queryClient.invalidateQueries({ queryKey: ['reminders', 'pets'] });
     },
   });
 }

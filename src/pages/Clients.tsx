@@ -8,6 +8,9 @@ import { useRefunds } from '../api/refunds';
 import { useDiscounts } from '../api/discounts';
 import { usePetLogsForPets } from '../api/petLogs';
 import { useEmployees } from '../api/employees';
+import { useActiveEmployees } from '../api/auth';
+import { useAuthStore } from '../store/useAuthStore';
+import { canManageEmployees } from '../lib/permissions';
 import { buildActivity } from '../lib/activity';
 import { ActivityFeed } from '../components/ActivityFeed';
 import { Button, Card, CardHeader, EmptyState, Input, Modal, PhoneListInput, Select } from '../components/ui';
@@ -37,7 +40,16 @@ export function Clients() {
       ),
     [unsortedClients],
   );
-  const { data: employees = [] } = useEmployees();
+  const me = useAuthStore((s) => s.employee);
+  // Editing and deleting a client is doctor/nurse territory on the server; everyone else
+  // gets a read-only page rather than buttons that can only fail.
+  const canEditClients = me?.role !== 'cashier';
+  // The full staff list (former employees included) is behind "manage employees"; everyone
+  // else names the history from the active roster the sign-in screen already uses.
+  const canListAllStaff = canManageEmployees(me);
+  const { data: allEmployees } = useEmployees({ enabled: canListAllStaff });
+  const { data: activeEmployees = [] } = useActiveEmployees();
+  const employees = (canListAllStaff ? allEmployees : undefined) ?? activeEmployees;
   const createClient = useCreateClient();
   const updateClient = useUpdateClient();
   const deleteClient = useDeleteClient();
@@ -232,14 +244,16 @@ export function Clients() {
                     .filter(Boolean)
                     .join(' · ')}
                   action={
-                    <div className="flex gap-2">
-                      <Button variant="ghost" onClick={() => openEdit(selectedClient)}>
-                        <Pencil size={14} /> Edit
-                      </Button>
-                      <Button variant="danger" onClick={() => setDeleteTarget(selectedClient)}>
-                        <Trash2 size={14} /> Delete
-                      </Button>
-                    </div>
+                    canEditClients && (
+                      <div className="flex gap-2">
+                        <Button variant="ghost" onClick={() => openEdit(selectedClient)}>
+                          <Pencil size={14} /> Edit
+                        </Button>
+                        <Button variant="danger" onClick={() => setDeleteTarget(selectedClient)}>
+                          <Trash2 size={14} /> Delete
+                        </Button>
+                      </div>
+                    )
                   }
                 />
                 <div className="px-5 py-4">
