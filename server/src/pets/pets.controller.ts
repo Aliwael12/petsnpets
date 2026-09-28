@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { PetsService } from './pets.service';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { Roles } from '../auth/roles.decorator';
 import { createPetSchema, listPetsQuerySchema, type CreatePetDto, type ListPetsQueryDto } from './dto/pet.dto';
 
-/** Open to every signed-in role (no @Roles): whoever checks a pet in for boarding or takes
- *  a client's details at the till may need to add the pet on the spot. */
 @Controller('pets')
+@Roles('doctor', 'nurse')
 export class PetsController {
   constructor(private readonly pets: PetsService) {}
 

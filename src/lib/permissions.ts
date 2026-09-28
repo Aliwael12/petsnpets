@@ -29,11 +29,14 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/settings', label: 'Settings', defaultRoles: ['admin', 'doctor', 'nurse', 'cashier'] },
 ];
 
+/** Tabs every employee has, with no per-employee switch: the Dashboard is the guaranteed
+ *  landing page, and every role checks pets in and out of Boarding. */
+const ALWAYS_ON = new Set(['/dashboard', '/boarding']);
+
 /** Tabs a doctor can individually enable/disable per employee from the Employees tab.
- * Dashboard is excluded — it's the guaranteed landing page, always visible. So are the
- * permission-backed tabs: they follow their grant, and a second switch for them could only
- * ever contradict it. */
-export const TOGGLEABLE_FEATURES = NAV_ITEMS.filter((item) => item.path !== '/dashboard' && !item.requires);
+ * The always-on tabs are excluded, and so are the permission-backed tabs: they follow their
+ * grant, and a second switch for them could only ever contradict it. */
+export const TOGGLEABLE_FEATURES = NAV_ITEMS.filter((item) => !ALWAYS_ON.has(item.path) && !item.requires);
 
 /** Paths that follow a grant rather than a toggle, keyed by the permission they need. */
 const PERMISSION_TABS = new Map<string, Permission>(
@@ -73,7 +76,7 @@ export function canAccess(
   path: string,
 ): boolean {
   if (!employee) return false;
-  if (path === '/dashboard') return true;
+  if (ALWAYS_ON.has(path)) return true;
 
   const required = PERMISSION_TABS.get(path);
   if (required) return hasPermission(employee, required);

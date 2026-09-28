@@ -41,8 +41,8 @@ export function Clients() {
     [unsortedClients],
   );
   const me = useAuthStore((s) => s.employee);
-  // Editing and deleting a client is doctor/nurse territory on the server; everyone else
-  // gets a read-only page rather than buttons that can only fail.
+  // Editing or deleting a client and adding pets are doctor/nurse territory on the server;
+  // everyone else gets a read-only page rather than buttons that can only fail.
   const canEditClients = me?.role !== 'cashier';
   // The full staff list (former employees included) is behind "manage employees"; everyone
   // else names the history from the active roster the sign-in screen already uses.
@@ -261,13 +261,15 @@ export function Clients() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Linked pets ({linkedPets.length})
                     </p>
-                    <button
-                      type="button"
-                      onClick={openAddPet}
-                      className="flex items-center gap-1 text-xs font-medium text-navy-700 hover:underline"
-                    >
-                      <Plus size={13} /> Add pet
-                    </button>
+                    {canEditClients && (
+                      <button
+                        type="button"
+                        onClick={openAddPet}
+                        className="flex items-center gap-1 text-xs font-medium text-navy-700 hover:underline"
+                      >
+                        <Plus size={13} /> Add pet
+                      </button>
+                    )}
                   </div>
                   {linkedPets.length === 0 ? (
                     <p className="text-sm text-slate-400">No pets linked to this client yet.</p>
