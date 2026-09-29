@@ -4,8 +4,10 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { Roles } from '../auth/roles.decorator';
 import { createPetSchema, listPetsQuerySchema, type CreatePetDto, type ListPetsQueryDto } from './dto/pet.dto';
 
+/** Cashiers too: whoever is at the front desk registers a walk-in's pet. Reads are open
+ *  alongside creation, since adding a pet from Pet Logs opens it straight afterwards. */
 @Controller('pets')
-@Roles('doctor', 'nurse')
+@Roles('doctor', 'nurse', 'cashier')
 export class PetsController {
   constructor(private readonly pets: PetsService) {}
 
