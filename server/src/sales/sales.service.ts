@@ -4,17 +4,52 @@ import { and, asc, desc, eq, gte, inArray, sql as rawSql } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
-import { clients, discounts, employees, products, transactionItems, transactions, type Product } from '../db/schema';
+import { clients, discounts, employees, products, transactionItems, transactionPayments, transactions, type Product } from '../db/schema';
 import { ForbiddenAppError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
 import { IdempotencyService } from '../common/idempotency/idempotency.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import type { Actor } from '../auth/auth.types';
-import type { CreateSaleDto, ListSalesQueryDto } from './dto/sale.dto';
+import type { CreateSaleDto, ListSalesQueryDto, PaymentLine, UpdateSaleDto } from './dto/sale.dto';
 
 /** What an unlinked sale is billed to, on the invoice and in every list. */
 const WALK_IN_CUSTOMER_NAME = 'Walk-in customer';
+
+const PAYMENT_COLUMNS = { columns: { method: true, amount: true } } as const;
+
+/** What every sale list and read returns alongside the sale itself. */
+const SALE_RELATIONS = {
+  items: { with: { product: { columns: { id: true, name: true } } } },
+  payments: PAYMENT_COLUMNS,
+  soldByEmployee: { columns: { id: true, name: true } },
+  client: { columns: { id: true, name: true, legacyId: true } },
+} as const;
+
+/** The payment rows for a new sale: the explicit split if given, else the legacy single
+ *  method as the whole total, else none ("not recorded"). */
+function resolvePayments(dto: CreateSaleDto, total: number): PaymentLine[] {
+  if (dto.payments && dto.payments.length > 0) return normalizePayments(dto.payments, total);
+  if (dto.paymentMethod && total > 0) return [{ method: dto.paymentMethod, amount: total }];
+  return [];
+}
+
+/**
+ * Merges lines that name the same method, then insists they add up to exactly the bill:
+ * a split that's short or over would make the drawer and the books disagree. An empty list
+ * is valid and means "not recorded".
+ */
+function normalizePayments(lines: PaymentLine[], total: number): PaymentLine[] {
+  const byMethod = new Map<PaymentLine['method'], number>();
+  for (const line of lines) byMethod.set(line.method, (byMethod.get(line.method) ?? 0) + line.amount);
+  const merged = [...byMethod].map(([method, amount]) => ({ method, amount }));
+  const paid = merged.reduce((sum, p) => sum + p.amount, 0);
+  if (merged.length > 0 && paid !== total) {
+    const egp = (piastres: number) => `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+    throw new ValidationAppError(`The payments add up to ${egp(paid)}, but the bill is ${egp(total)}.`, { paid, total });
+  }
+  return merged;
+}
 
 @Injectable()
 export class SalesService {
@@ -44,11 +79,7 @@ export class SalesService {
     let rows = await this.db.query.transactions.findMany({
       where: conditions.length > 0 ? and(...conditions) : undefined,
       orderBy: [desc(transactions.createdAt)],
-      with: {
-        items: { with: { product: { columns: { id: true, name: true } } } },
-        soldByEmployee: { columns: { id: true, name: true } },
-        client: { columns: { id: true, name: true, legacyId: true } },
-      },
+      with: SALE_RELATIONS,
     });
 
     if (query.productId) {
@@ -60,7 +91,7 @@ export class SalesService {
   async getOrThrow(id: string) {
     const row = await this.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
-      with: { items: { with: { product: true } } },
+      with: { items: { with: { product: true } }, payments: PAYMENT_COLUMNS },
     });
     if (!row) throw new NotFoundAppError('Transaction', id);
     return row;
@@ -118,6 +149,7 @@ export class SalesService {
       }
 
       const total = subtotal - discountAmount;
+      const payments = resolvePayments(dto, total);
       const { year, invoiceNo } = await this.nextInvoiceNumber(tx);
 
       const [txn] = await tx
@@ -132,9 +164,12 @@ export class SalesService {
           discountId: dto.discountId,
           discountAmount: dto.discountId ? discountAmount : undefined,
           total,
-          paymentMethod: dto.paymentMethod,
         })
         .returning();
+
+      if (payments.length > 0) {
+        await tx.insert(transactionPayments).values(payments.map((p) => ({ ...p, transactionId: txn.id })));
+      }
 
       await tx.insert(transactionItems).values(
         dto.items.map((line) => ({
@@ -168,11 +203,68 @@ export class SalesService {
         action: 'sale.create',
         entityType: 'transaction',
         entityId: txn.id,
-        after: txn,
+        after: { ...txn, payments },
       });
 
       const items = await tx.select().from(transactionItems).where(eq(transactionItems.transactionId, txn.id)).orderBy(asc(transactionItems.id));
-      return { ...txn, items };
+      return { ...txn, items, payments };
+    });
+  }
+
+  /**
+   * Corrects when a sale happened and/or how it was paid. Open to every role (the till is
+   * everyone's), and always audited with the before and after, so a correction is never
+   * silent. Nothing else about a sale is editable here: items and prices stay as rung up.
+   */
+  async update(id: string, dto: UpdateSaleDto, actor: Actor) {
+    return this.db.transaction(async (tx) => {
+      const [before] = await tx.select().from(transactions).where(eq(transactions.id, id)).for('update');
+      if (!before) throw new NotFoundAppError('Transaction', id);
+      const beforePayments = await tx
+        .select({ method: transactionPayments.method, amount: transactionPayments.amount })
+        .from(transactionPayments)
+        .where(eq(transactionPayments.transactionId, id));
+
+      let occurredAt = before.createdAt;
+      if (dto.occurredAt !== undefined) {
+        // Converted in Postgres with the clinic's timezone rather than in JS, the same way
+        // every date bound in this app is: Cairo's UTC offset changes with daylight saving.
+        const [{ at }] = await tx.execute<{ at: Date | string }>(
+          rawSql`select (${dto.occurredAt}::timestamp at time zone ${this.tz}) as at`,
+        );
+        occurredAt = new Date(at);
+        if (occurredAt.getTime() > Date.now() + 60_000) {
+          throw new ValidationAppError('A sale can’t be dated in the future.');
+        }
+        await tx.update(transactions).set({ createdAt: occurredAt }).where(eq(transactions.id, id));
+      }
+
+      let payments: PaymentLine[] = beforePayments;
+      if (dto.payments !== undefined) {
+        payments = normalizePayments(dto.payments, before.total);
+        await tx.delete(transactionPayments).where(eq(transactionPayments.transactionId, id));
+        if (payments.length > 0) {
+          await tx.insert(transactionPayments).values(payments.map((p) => ({ ...p, transactionId: id })));
+        }
+      }
+
+      const snapshot = (at: Date, paid: PaymentLine[]) => ({
+        invoice: `INV-${before.invoiceYear}-${String(before.invoiceNo).padStart(5, '0')}`,
+        customer: before.customerName,
+        occurredAt: at.toISOString(),
+        payments: paid,
+      });
+      await this.audit.log(tx, {
+        actorId: actor.id,
+        action: 'sale.update',
+        entityType: 'transaction',
+        entityId: id,
+        before: snapshot(before.createdAt, beforePayments),
+        after: snapshot(occurredAt, payments),
+      });
+
+      const row = await tx.query.transactions.findFirst({ where: eq(transactions.id, id), with: SALE_RELATIONS });
+      return row!;
     });
   }
 

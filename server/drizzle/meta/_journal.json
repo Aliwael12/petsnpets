@@ -92,6 +92,13 @@
       "when": 1790294230821,
       "tag": "0012_add_boardings",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790768960040,
+      "tag": "0013_quick_boomer",
+      "breakpoints": true
     }
   ]
 }

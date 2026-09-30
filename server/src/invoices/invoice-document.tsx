@@ -61,7 +61,7 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
     return discount.kind === 'percent' ? `Discount (${discount.value}%)` : 'Discount';
   }
 
-  return function InvoiceDocument({ transaction, soldByName }: InvoiceDocProps) {
+  return function InvoiceDocument({ transaction, soldByName, timeZone }: InvoiceDocProps) {
     const invoiceNo = `INV-${transaction.invoiceYear}-${String(transaction.invoiceNo).padStart(5, '0')}`;
     const client = transaction.client;
     const pets = client?.pets ?? [];
@@ -76,7 +76,7 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
               <Text style={styles.metaLabel}>Invoice No.</Text>
               <Text style={styles.metaValue}>{invoiceNo}</Text>
               <Text style={styles.metaLabel}>Date</Text>
-              <Text style={styles.metaValue}>{new Date(transaction.createdAt).toLocaleString('en-GB')}</Text>
+              <Text style={styles.metaValue}>{formatWhen(transaction.createdAt, timeZone)}</Text>
             </View>
           </View>
 
@@ -133,12 +133,19 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
               <Text style={styles.grandTotalLabel}>Total</Text>
               <Text style={styles.grandTotalValue}>{money(transaction.total)}</Text>
             </View>
-            {transaction.paymentMethod ? (
+            {transaction.payments.length === 1 ? (
               <View style={styles.totalsRow}>
                 <Text>Paid with</Text>
-                <Text>{PAYMENT_LABELS[transaction.paymentMethod]}</Text>
+                <Text>{PAYMENT_LABELS[transaction.payments[0].method]}</Text>
               </View>
-            ) : null}
+            ) : (
+              transaction.payments.map((p) => (
+                <View key={p.method} style={styles.totalsRow}>
+                  <Text>Paid by {PAYMENT_LABELS[p.method]}</Text>
+                  <Text>{money(p.amount)}</Text>
+                </View>
+              ))
+            )}
           </View>
 
           <View style={styles.footer}>
@@ -182,9 +189,9 @@ export interface InvoiceDocProps {
     discountAmount?: number | null;
     discount?: { kind: 'percent' | 'fixed'; value: number; note?: string | null } | null;
     total: number;
-    /** Absent on sales recorded before payment tracking existed — the invoice then simply
-     * omits the line rather than printing a guess. */
-    paymentMethod?: 'cash' | 'instapay' | 'card' | null;
+    /** One line per method when the bill was split. Empty on sales recorded without a
+     * method — the invoice then simply omits the line rather than printing a guess. */
+    payments: { method: 'cash' | 'instapay' | 'card'; amount: number }[];
     items: { productName: string; quantity: number; unitPrice: number }[];
     /** Absent for sales predating client tracking, or where the client was since deleted. */
     client?: {
@@ -194,4 +201,20 @@ export interface InvoiceDocProps {
     } | null;
   };
   soldByName: string;
+  /** The clinic's IANA timezone (the TIMEZONE setting), for the printed date and time. */
+  timeZone: string;
 }
+
+/** "30 Sept 2026, 2:05 pm" in the clinic's timezone — never the server's (UTC on Vercel). */
+function formatWhen(value: Date | string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date(value));
+}
+

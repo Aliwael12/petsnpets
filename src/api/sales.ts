@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { PaymentMethod, Transaction } from '../types';
+import type { PaymentLine, Transaction } from '../types';
 
 export interface SalesFilters {
   soldBy?: string;
@@ -36,7 +36,8 @@ export interface CheckoutInput {
   clientId?: string;
   items: { productId: string; quantity: number }[];
   discountId?: string;
-  paymentMethod?: PaymentMethod;
+  /** Empty means "not recorded"; otherwise the lines must add up to the bill. */
+  payments: PaymentLine[];
   soldBy?: string;
 }
 
@@ -51,6 +52,25 @@ export function useCheckout() {
       // The whole 'analytics' prefix, not just the summary: six of the seven analytics
       // queries had no invalidation at all, so ringing up a sale left "Best sellers"
       // stale until a refocus.
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    },
+  });
+}
+
+export interface UpdateSaleInput {
+  id: string;
+  /** Cairo wall time, "YYYY-MM-DDTHH:mm" — the server applies the clinic's UTC offset. */
+  occurredAt?: string;
+  payments?: PaymentLine[];
+}
+
+export function useUpdateSale() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: UpdateSaleInput) => api.patch<Transaction>(`/sales/${id}`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      // Moving a sale to another day or method moves it between the income figures.
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
   });

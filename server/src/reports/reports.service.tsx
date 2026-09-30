@@ -52,6 +52,12 @@ const METHOD_LABELS: Record<Method, string> = {
 const methodLabel = (m: Method | null | undefined) =>
   m ? METHOD_LABELS[m] : 'Not recorded';
 
+/** "Cash" for a sale paid one way; one "Cash EGP 500" line per method for a split bill. */
+function paidWith(payments: { method: Method; amount: number }[]): string {
+  if (payments.length <= 1) return methodLabel(payments[0]?.method);
+  return payments.map((p) => `${METHOD_LABELS[p.method]} ${egp(p.amount)}`).join('\n');
+}
+
 /** Mirrors EXPENSE_CATEGORY_LABELS in the frontend's types.ts. */
 const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
   rent: 'Rent',
@@ -78,6 +84,7 @@ const OTHER_ACTIVITY_LABELS: Record<string, string> = {
   'category.create': 'Added category',
   'category.update': 'Edited category',
   'category.delete': 'Removed category',
+  'sale.update': 'Edited sale',
   'client.update': 'Edited client',
   'client.delete': 'Deleted client',
   'boarding.update': 'Updated boarding stay',
@@ -193,7 +200,10 @@ export class ReportsService {
     const sales = await this.db.query.transactions.findMany({
       where: inMonth(transactions.createdAt),
       orderBy: [asc(transactions.createdAt)],
-      with: { items: { with: { product: { columns: { name: true } } } } },
+      with: {
+        items: { with: { product: { columns: { name: true } } } },
+        payments: { columns: { method: true, amount: true } },
+      },
     });
     const refundRows = await this.db.query.refunds.findMany({
       where: inMonth(refunds.createdAt),
@@ -331,10 +341,15 @@ export class ReportsService {
       rows: { method: Method | null; amount: number }[],
       m: Method | null,
     ) => sum(rows.filter((r) => r.method === m).map((r) => r.amount));
-    const saleM = sales.map((t) => ({
-      method: t.paymentMethod,
-      amount: t.total,
-    }));
+    // Each split share counts under its own method; whatever a sale's payment rows don't
+    // cover (a sale rung up without a method) counts as "Not recorded".
+    const saleM = sales.flatMap((t) => {
+      const recorded = sum(t.payments.map((p) => p.amount));
+      return [
+        ...t.payments.map((p) => ({ method: p.method as Method | null, amount: p.amount })),
+        ...(t.total > recorded ? [{ method: null, amount: t.total - recorded }] : []),
+      ];
+    });
     const refundM = refundRows.map((r) => ({
       method: r.paymentMethod,
       amount: r.total,
@@ -414,7 +429,7 @@ export class ReportsService {
                   `${it.quantity} × ${it.product.name} @ ${egp(it.unitPrice)}`,
               )
               .join('\n'),
-            methodLabel(t.paymentMethod),
+            paidWith(t.payments),
             t.discountAmount ? egp(t.discountAmount) : '—',
             egp(t.total),
             who(t.soldBy),
@@ -726,6 +741,7 @@ export class ReportsService {
             (before?.name as string | undefined) ??
             (after?.description as string | undefined) ??
             (before?.description as string | undefined) ??
+            (after?.invoice as string | undefined) ??
             (petId ? petName.get(petId) : undefined) ??
             (a.entityType === 'employee' && a.entityId
               ? staffName.get(a.entityId)
@@ -738,7 +754,7 @@ export class ReportsService {
               who(a.actorId),
               OTHER_ACTIVITY_LABELS[a.action] ?? a.action,
               subject,
-              describeChange(before, after),
+              describeChange(before, after, fmt.time),
             ],
           };
         }),
@@ -811,9 +827,9 @@ export class ReportsService {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
-      hour: '2-digit',
+      hour: 'numeric',
       minute: '2-digit',
-      hour12: false,
+      hour12: true,
     });
     const dayOfFmt = new Intl.DateTimeFormat('en-GB', {
       timeZone: this.tz,
@@ -885,6 +901,7 @@ function snapshot(value: unknown): Record<string, unknown> | undefined {
 function describeChange(
   before: Record<string, unknown> | undefined,
   after: Record<string, unknown> | undefined,
+  time: (d: Date | string) => string,
 ): string {
   if (!before && !after) return '—';
   if (!before || !after) return '—';
@@ -896,7 +913,7 @@ function describeChange(
     )
     .map(
       (key) =>
-        `${humanize(key)}: ${showValue(key, before[key])} to ${showValue(key, after[key])}`,
+        `${humanize(key)}: ${showValue(key, before[key], time)} to ${showValue(key, after[key], time)}`,
     );
   const text = changes.join(' · ') || 'No field changes';
   return text.length > 220 ? `${text.slice(0, 217)}…` : text;
@@ -910,8 +927,19 @@ function humanize(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-function showValue(key: string, value: unknown): string {
+function showValue(
+  key: string,
+  value: unknown,
+  time: (d: Date | string) => string,
+): string {
+  if (key === 'payments' && Array.isArray(value))
+    return value.length
+      ? value
+          .map((p: { method: Method; amount: number }) => `${METHOD_LABELS[p.method]} ${egp(p.amount)}`)
+          .join(' + ')
+      : 'Not recorded';
   if (value === null || value === undefined || value === '') return '—';
+  if (key === 'occurredAt' && typeof value === 'string') return time(value);
   if (MONEY_FIELDS.has(key) && typeof value === 'number') return egp(value);
   if (Array.isArray(value))
     return value.length

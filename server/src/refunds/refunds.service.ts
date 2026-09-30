@@ -4,7 +4,7 @@ import { and, desc, eq, sql as rawSql } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
-import { refundItems, refunds, transactionItems, transactions } from '../db/schema';
+import { refundItems, refunds, transactionItems, transactionPayments, transactions } from '../db/schema';
 import { NotFoundAppError, RefundExceedsSoldError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
 import { IdempotencyService } from '../common/idempotency/idempotency.service';
@@ -107,6 +107,11 @@ export class RefundsService {
 
       const refundTotal = lineAmounts.reduce((a, b) => a + b, 0);
 
+      const salePaidWith = await tx
+        .selectDistinct({ method: transactionPayments.method })
+        .from(transactionPayments)
+        .where(eq(transactionPayments.transactionId, txn.id));
+
       const [refund] = await tx
         .insert(refunds)
         .values({
@@ -117,9 +122,9 @@ export class RefundsService {
           // Defaults to however the sale was paid, because that's what actually happens
           // most of the time. Explicitly overridable: a card sale refunded in cash from
           // the drawer is real, and the breakdown has to show cash going out rather than
-          // card income un-reducing. `?? null` keeps a refund of a pre-tracking sale
-          // honestly blank instead of guessing.
-          paymentMethod: dto.paymentMethod ?? txn.paymentMethod ?? null,
+          // card income un-reducing. A split or unrecorded sale has no single answer, so
+          // it stays honestly blank instead of guessing.
+          paymentMethod: dto.paymentMethod ?? (salePaidWith.length === 1 ? salePaidWith[0].method : null),
         })
         .returning();
 

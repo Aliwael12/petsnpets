@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { index, integer, pgTable, text, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { discountKindEnum } from './enums';
 import { clients } from './clients';
@@ -27,7 +27,7 @@ export const discounts = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     usedInTransactionId: uuid('used_in_transaction_id')
       .unique()
-      .references(() => transactions.id, { onDelete: 'set null' }),
+      .references((): AnyPgColumn => transactions.id, { onDelete: 'set null' }),
   },
   (table) => [
     index('discounts_client_id_idx').on(table.clientId),

@@ -10,6 +10,17 @@ export const saleLineSchema = z.object({
 
 export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
 
+/** One method's share of a bill, in piastres. */
+export const paymentLineSchema = z.object({
+  method: paymentMethodSchema,
+  amount: z.number().int().positive(),
+});
+
+/** How a bill was paid: empty means "not recorded"; otherwise the lines must add up to the
+ *  exact total (checked in SalesService, which is where the total is known). */
+export const paymentsSchema = z.array(paymentLineSchema).max(10);
+export type PaymentLine = z.infer<typeof paymentLineSchema>;
+
 export const createSaleSchema = z.object({
   /** Optional: a walk-in who doesn't want to leave their details can still be rung up.
    *  When given, customerName is derived from the client record, never free text — see
@@ -21,10 +32,30 @@ export const createSaleSchema = z.object({
    * ringing up a sale on a doctor's behalf. Omitted means "the person checking out".
    * Only admin/cashier may set this to someone else — see SalesService.executeCheckout. */
   soldBy: z.uuid().optional(),
-  /** Omitted means "not recorded" — shown as such in the payment breakdowns. */
+  /** Omitted or empty means "not recorded" — shown as such in the payment breakdowns. */
+  payments: paymentsSchema.optional(),
+  /** Legacy single-method form, still accepted so a till tab that hasn't reloaded since
+   *  split payments shipped keeps working: treated as the whole total paid that way. */
   paymentMethod: paymentMethodSchema.optional(),
 });
 export type CreateSaleDto = z.infer<typeof createSaleSchema>;
+
+/** Corrections to a sale after the fact: when it happened and how it was paid. */
+export const updateSaleSchema = z
+  .object({
+    /** Clinic-local wall time, "YYYY-MM-DDTHH:mm" (what a datetime-local input gives) — the
+     *  server converts it using the clinic's timezone, so the browser never has to know
+     *  Cairo's UTC offset on that date. */
+    occurredAt: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Date and time must look like 2026-09-30T14:05.')
+      .optional(),
+    payments: paymentsSchema.optional(),
+  })
+  .refine((v) => v.occurredAt !== undefined || v.payments !== undefined, {
+    message: 'Nothing to change.',
+  });
+export type UpdateSaleDto = z.infer<typeof updateSaleSchema>;
 
 export const listSalesQuerySchema = z
   .object({

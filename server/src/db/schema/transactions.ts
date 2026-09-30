@@ -1,4 +1,4 @@
-import { bigint, index, integer, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { bigint, check, index, integer, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { paymentMethodEnum } from './enums';
 import { clients } from './clients';
@@ -26,12 +26,8 @@ export const transactions = pgTable(
     discountId: uuid('discount_id').references(() => discounts.id, { onDelete: 'set null' }),
     discountAmount: bigint('discount_amount', { mode: 'number' }),
     total: bigint('total', { mode: 'number' }).notNull(),
-    // Deliberately nullable with NO default and NO backfill: NULL means "this sale predates
-    // payment tracking". Defaulting history to 'cash' would fabricate a fact the clinic never
-    // recorded, and the whole point of the breakdown is reconciling the drawer against
-    // reality. The API requires a method on every new sale; the UI shows NULL as
-    // "Not recorded".
-    paymentMethod: paymentMethodEnum('payment_method'),
+    // How it was paid lives in transaction_payments — one row per method, so a bill can be
+    // split (e.g. half cash, half card).
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -62,7 +58,30 @@ export const transactionItems = pgTable(
   ],
 );
 
+/**
+ * How a sale was paid: one row per method. The rows always sum to exactly the sale's total,
+ * or there are none at all — never a partial set. No rows means "not recorded" (a sale from
+ * before payment tracking, or one rung up without a method), and it is deliberately never
+ * folded into cash: the breakdown exists to reconcile the drawer against reality.
+ */
+export const transactionPayments = pgTable(
+  'transaction_payments',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    transactionId: uuid('transaction_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    method: paymentMethodEnum('method').notNull(),
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+  },
+  (table) => [
+    index('transaction_payments_transaction_id_idx').on(table.transactionId),
+    check('transaction_payments_amount_positive', sql`${table.amount} > 0`),
+  ],
+);
+
 export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
 export type TransactionItem = typeof transactionItems.$inferSelect;
 export type NewTransactionItem = typeof transactionItems.$inferInsert;
+export type TransactionPayment = typeof transactionPayments.$inferSelect;

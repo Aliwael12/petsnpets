@@ -2,6 +2,31 @@ import { useFinancialSummary } from '../api/analytics';
 import { useSupplierBalances } from '../api/purchasing';
 import { todayKey } from '../lib/timezone';
 import { StatTile, formatCurrency } from './ui';
+import { PAYMENT_METHOD_LABELS, type MethodBreakdown, type PaymentMethod } from '../types';
+
+const INCOME_METHODS: PaymentMethod[] = ['cash', 'card', 'instapay'];
+
+/** How the income came in: split sales count each share under its own method, and refunds
+ *  come off the method they were paid back through. "Not recorded" only shows when there is
+ *  some — a sale rung up without picking a method. */
+function MethodBreakdownRows({ byMethod }: { byMethod: MethodBreakdown }) {
+  return (
+    <dl className="mt-3 flex flex-col gap-1 border-t border-black/5 pt-3 text-xs">
+      {INCOME_METHODS.map((m) => (
+        <div key={m} className="flex items-baseline justify-between gap-3">
+          <dt className="text-slate-500">{PAYMENT_METHOD_LABELS[m]}</dt>
+          <dd className="font-medium tabular-nums text-slate-700">{formatCurrency(byMethod[m])}</dd>
+        </div>
+      ))}
+      {byMethod.unrecorded !== 0 && (
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-slate-400">{PAYMENT_METHOD_LABELS.unrecorded}</dt>
+          <dd className="tabular-nums text-slate-500">{formatCurrency(byMethod.unrecorded)}</dd>
+        </div>
+      )}
+    </dl>
+  );
+}
 
 /** Rows read straight off supplier-balances, highest debt first, so the owner sees who to
  *  pay down soonest without having to scan a whole table. */
@@ -94,6 +119,7 @@ export function MoneyOverview() {
                   ? `${formatCurrency(summary.range.income.gross)} sales − ${formatCurrency(summary.range.income.refunds)} refunded`
                   : undefined
               }
+              footer={<MethodBreakdownRows byMethod={summary.range.income.byMethod} />}
             />
             <StatTile
               label="Income this month"
@@ -104,6 +130,7 @@ export function MoneyOverview() {
                   ? `${formatCurrency(summary.month.income.gross)} sales − ${formatCurrency(summary.month.income.refunds)} refunded`
                   : undefined
               }
+              footer={<MethodBreakdownRows byMethod={summary.month.income.byMethod} />}
             />
           </div>
         )}

@@ -115,3 +115,22 @@ export function formatRangeLabel({ from, to }: { from: string | null; to: string
   if (f!.year === t!.year) return `${f!.day} ${f!.month} – ${t!.day} ${t!.month} ${t!.year}`;
   return `${f!.day} ${f!.month} ${f!.year} – ${t!.day} ${t!.month} ${t!.year}`;
 }
+
+const wallTimeFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: BUSINESS_TZ,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** An instant as clinic-local "YYYY-MM-DDTHH:mm" — the value a datetime-local input takes.
+ * The input itself has no timezone, so it must be filled with Cairo's wall time, not the
+ * viewer's; the server converts it back with Cairo's offset on that date. */
+export function toBusinessDateTimeInput(iso: string): string {
+  const parts = wallTimeFormatter.formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+}

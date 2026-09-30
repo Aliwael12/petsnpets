@@ -76,11 +76,11 @@ export function PriceChecker() {
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-navy-100 text-navy-800">
               <Tag size={22} />
             </div>
-            <Badge tone={selected.category === 'service' ? 'service' : 'other'}>{selected.category}</Badge>
+            <Badge tone={selected.kind === 'service' ? 'service' : 'other'}>{selected.category}</Badge>
             <h2 className="text-lg font-medium text-navy-950">{selected.name}</h2>
             <p className="text-5xl font-bold tracking-tight text-navy-950">{formatCurrency(selected.unitPrice)}</p>
             <p className="text-sm text-slate-400">
-              {selected.category === 'service' ? 'Service — always available' : `${selected.stockQuantity} in stock`}
+              {selected.kind === 'service' ? 'Service — always available' : `${selected.stockQuantity} in stock`}
             </p>
           </div>
         </Card>

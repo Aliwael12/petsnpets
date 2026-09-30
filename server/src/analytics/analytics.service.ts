@@ -403,8 +403,7 @@ export class AnalyticsService {
           (make_date(${resolvedYear}, ${resolvedMonth}, 1) + interval '1 month')::date as d_end
       )
       -- the selected range
-      select 'range' as win, 'sales' as stream, t.payment_method::text as method, sum(t.total)::bigint as amount
-        from transactions t where true ${this.ts(rawSql`t.created_at`, range)} group by t.payment_method
+      ${this.salesByMethod('range', rawSql`true ${this.ts(rawSql`t.created_at`, range)}`)}
       union all
       select 'range', 'refunds', r.payment_method::text, sum(r.total)::bigint
         from refunds r where true ${this.ts(rawSql`r.created_at`, range)} group by r.payment_method
@@ -416,8 +415,7 @@ export class AnalyticsService {
         from expenses e where e.voided_at is null ${this.dt(rawSql`e.paid_on`, range)} group by e.payment_method
       union all
       -- the calendar month, exactly as before
-      select 'month', 'sales', t.payment_method::text, sum(t.total)::bigint
-        from transactions t, b where t.created_at >= b.ts_start and t.created_at < b.ts_end group by t.payment_method
+      ${this.salesByMethod('month', rawSql`t.created_at >= b.ts_start and t.created_at < b.ts_end`)}
       union all
       select 'month', 'refunds', r.payment_method::text, sum(r.total)::bigint
         from refunds r, b where r.created_at >= b.ts_start and r.created_at < b.ts_end group by r.payment_method
@@ -430,7 +428,7 @@ export class AnalyticsService {
         where e.voided_at is null and e.paid_on >= b.d_start and e.paid_on < b.d_end group by e.payment_method
       union all
       -- all time. NEVER range-filtered: it is the figure the range is judged against.
-      select 'all', 'sales', t.payment_method::text, sum(t.total)::bigint from transactions t group by t.payment_method
+      ${this.salesByMethod('all', rawSql`true`)}
       union all
       select 'all', 'refunds', r.payment_method::text, sum(r.total)::bigint from refunds r group by r.payment_method
       union all
@@ -499,6 +497,27 @@ export class AnalyticsService {
       expenses: { stock, operating, total: totalExpenses, byMethod: expensesByMethod },
       net: netIncome - totalExpenses,
     };
+  }
+
+  /**
+   * One window's sales income per payment method: each share of a split bill under its own
+   * method, plus whatever a sale's payment rows don't cover as unrecorded (method null).
+   * `where` filters `t` (transactions) and may use the `b` month-bounds CTE.
+   */
+  private salesByMethod(win: 'range' | 'month' | 'all', where: SQL): SQL {
+    return rawSql`
+      select ${rawSql.raw(`'${win}'`)} as win, 'sales' as stream, s.method, sum(s.amount)::bigint as amount
+      from (
+        select p.method::text as method, p.amount
+          from transactions t join transaction_payments p on p.transaction_id = t.id, b
+          where ${where}
+        union all
+        select null, t.total - coalesce((select sum(p.amount) from transaction_payments p where p.transaction_id = t.id), 0)
+          from transactions t, b
+          where ${where}
+      ) s
+      where s.amount <> 0
+      group by s.method`;
   }
 
   /** ` and <col> >= ... and <col> < ...` for a timestamptz column, or nothing when open. */

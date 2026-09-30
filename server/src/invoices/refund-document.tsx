@@ -44,7 +44,7 @@ export function createRefundDocument(reactPdf: typeof ReactPdf) {
     return `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
   }
 
-  return function RefundDocument({ refund, refundedByName }: RefundDocProps) {
+  return function RefundDocument({ refund, refundedByName, timeZone }: RefundDocProps) {
     const originalInvoice = `INV-${refund.invoiceYear}-${String(refund.invoiceNo).padStart(5, '0')}`;
 
     return (
@@ -60,7 +60,7 @@ export function createRefundDocument(reactPdf: typeof ReactPdf) {
               <Text style={styles.metaLabel}>Against invoice</Text>
               <Text style={styles.metaValue}>{originalInvoice}</Text>
               <Text style={styles.metaLabel}>Refunded on</Text>
-              <Text style={styles.metaValue}>{new Date(refund.createdAt).toLocaleString('en-GB')}</Text>
+              <Text style={styles.metaValue}>{formatWhen(refund.createdAt, timeZone)}</Text>
             </View>
           </View>
 
@@ -144,4 +144,20 @@ export interface RefundDocProps {
     items: { productName: string; quantity: number; unitPrice: number }[];
   };
   refundedByName: string;
+  /** The clinic's IANA timezone (the TIMEZONE setting), for the printed date and time. */
+  timeZone: string;
 }
+
+/** "30 Sept 2026, 2:05 pm" in the clinic's timezone — never the server's (UTC on Vercel). */
+function formatWhen(value: Date | string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date(value));
+}
+

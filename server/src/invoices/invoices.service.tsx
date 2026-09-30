@@ -42,6 +42,7 @@ export class InvoicesService {
       with: {
         items: { with: { product: { columns: { name: true } } } },
         soldByEmployee: { columns: { name: true } },
+        payments: { columns: { method: true, amount: true } },
         discount: { columns: { kind: true, value: true, note: true } },
         client: {
           columns: { legacyId: true },
@@ -75,13 +76,14 @@ export class InvoicesService {
           discountAmount: txn.discountAmount,
           discount: txn.discount,
           total: txn.total,
-          paymentMethod: txn.paymentMethod,
+          payments: txn.payments,
           items: txn.items.map((it) => ({ productName: it.product.name, quantity: it.quantity, unitPrice: it.unitPrice })),
           client: txn.client
             ? { legacyId: txn.client.legacyId, phone: primaryPhone, pets: txn.client.pets.map((p) => p.name) }
             : null,
         }}
         soldByName={txn.soldByEmployee.name}
+        timeZone={this.config.getOrThrow<string>('TIMEZONE')}
       />,
     ).toBuffer();
 
@@ -175,6 +177,7 @@ export class InvoicesService {
             items,
           }}
           refundedByName={refund.refundedByName}
+          timeZone={this.config.getOrThrow<string>('TIMEZONE')}
         />,
       )
       .toBuffer();

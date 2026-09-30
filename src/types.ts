@@ -216,6 +216,13 @@ export interface Supplier {
 export type PaymentMethod = 'cash' | 'instapay' | 'card';
 export type PaymentBucket = PaymentMethod | 'unrecorded';
 
+/** One method's share of a sale, in piastres. A sale's lines always add up to its total,
+ * or there are none ("not recorded"). */
+export interface PaymentLine {
+  method: PaymentMethod;
+  amount: number;
+}
+
 export const PAYMENT_METHOD_LABELS: Record<PaymentBucket, string> = {
   cash: 'Cash',
   instapay: 'InstaPay',
@@ -295,7 +302,8 @@ export interface Transaction {
   discountId?: string | null;
   discountAmount?: number | null; // piastres
   total: number; // piastres
-  paymentMethod?: PaymentMethod | null;
+  /** One line per method — more than one when the bill was split. */
+  payments: PaymentLine[];
   createdAt: string;
   items: TransactionItem[];
   soldByEmployee?: { id: string; name: string };

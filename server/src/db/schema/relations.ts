@@ -10,7 +10,7 @@ import { suppliers } from './suppliers';
 import { supplierOrders } from './supplier-orders';
 import { supplierPayments } from './supplier-payments';
 import { stockMovements } from './stock-movements';
-import { transactions, transactionItems } from './transactions';
+import { transactions, transactionItems, transactionPayments } from './transactions';
 import { refunds, refundItems } from './refunds';
 import { discounts } from './discounts';
 import { appointments } from './appointments';
@@ -95,10 +95,15 @@ export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
 
 export const transactionsRelations = relations(transactions, ({ one, many }) => ({
   items: many(transactionItems),
+  payments: many(transactionPayments),
   refunds: many(refunds),
   client: one(clients, { fields: [transactions.clientId], references: [clients.id] }),
   soldByEmployee: one(employees, { fields: [transactions.soldBy], references: [employees.id] }),
   discount: one(discounts, { fields: [transactions.discountId], references: [discounts.id] }),
+}));
+
+export const transactionPaymentsRelations = relations(transactionPayments, ({ one }) => ({
+  transaction: one(transactions, { fields: [transactionPayments.transactionId], references: [transactions.id] }),
 }));
 
 export const transactionItemsRelations = relations(transactionItems, ({ one }) => ({

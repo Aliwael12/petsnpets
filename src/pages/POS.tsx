@@ -11,6 +11,7 @@ import { openInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
 import { Badge, Button, Card, CardHeader, EmployeeTag, EmptyState, Input, Modal, PhoneListInput, Select, TabSwitch, formatCurrency, formatDateTime } from '../components/ui';
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../types';
+import { EMPTY_PAYMENT_DRAFT, PaymentsEditor, paymentsFromDraft, type PaymentDraft } from '../components/PaymentsEditor';
 import { Minus, Plus, RotateCcw, Search, ShoppingCart, Trash2, UserPlus, UserRound } from 'lucide-react';
 
 interface CartLine {
@@ -19,39 +20,6 @@ interface CartLine {
 }
 
 const PAYMENT_OPTIONS: PaymentMethod[] = ['cash', 'instapay', 'card'];
-
-/** Optional, with no pre-selected default: silently defaulting to cash would fill the
- * dashboard's breakdown with a method nobody picked. Left blank, the sale is recorded as
- * "Not recorded". Tapping the selected method again clears it. */
-function PaymentPicker({
-  value,
-  onChange,
-  label,
-}: {
-  value: PaymentMethod | '';
-  onChange: (next: PaymentMethod | '') => void;
-  label: string;
-}) {
-  return (
-    <div className="mt-3">
-      <p className="mb-1.5 text-xs font-medium text-slate-500">{label}</p>
-      <div className="grid grid-cols-3 gap-1.5">
-        {PAYMENT_OPTIONS.map((method) => (
-          <button
-            key={method}
-            type="button"
-            onClick={() => onChange(value === method ? '' : method)}
-            className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
-              value === method ? 'border-navy-800 bg-navy-800 text-white' : 'border-slate-200 text-slate-600 hover:border-navy-400'
-            }`}
-          >
-            {PAYMENT_METHOD_LABELS[method]}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function discountAmountFor(subtotal: number, discount: { kind: 'percent' | 'fixed'; value: number } | undefined): number {
   if (!discount) return 0;
@@ -81,7 +49,7 @@ export function POS() {
   const [newClientModalOpen, setNewClientModalOpen] = useState(false);
   const [newClientForm, setNewClientForm] = useState({ name: '', phones: [''] as string[] });
   const [discountId, setDiscountId] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
+  const [payment, setPayment] = useState<PaymentDraft>(EMPTY_PAYMENT_DRAFT);
   const [soldBy, setSoldBy] = useState('');
 
   // staleTime: 0 — a discount is single-use and can be created for this client on another
@@ -151,7 +119,7 @@ export function POS() {
     setClientId('');
     setClientSearch('');
     setDiscountId('');
-    setPaymentMethod('');
+    setPayment(EMPTY_PAYMENT_DRAFT);
     setSoldBy('');
   };
 
@@ -201,12 +169,17 @@ export function POS() {
       return;
     }
     if (!employee) return;
+    const paid = paymentsFromDraft(payment, total);
+    if ('error' in paid) {
+      toast.error(paid.error);
+      return;
+    }
     checkout.mutate(
       {
         clientId: clientId || undefined,
         items: cartDetails.map((l) => ({ productId: l.productId, quantity: l.quantity })),
         discountId: selectedDiscount?.id,
-        paymentMethod: paymentMethod || undefined,
+        payments: paid.payments,
         soldBy: soldBy || undefined,
       },
       {
@@ -311,8 +284,8 @@ export function POS() {
                   <span className="text-xs text-slate-400 capitalize">{p.category}</span>
                   <span className="mt-1 line-clamp-2 text-sm font-medium text-navy-950">{p.name}</span>
                   <span className="mt-2 text-sm font-semibold text-navy-800">{formatCurrency(p.unitPrice)}</span>
-                  <span className={`mt-1 text-xs ${p.category !== 'service' && p.stockQuantity <= 0 ? 'text-red-500' : 'text-slate-400'}`}>
-                    {p.category === 'service' ? 'Service' : p.stockQuantity <= 0 ? 'Out of stock' : `${p.stockQuantity} in stock`}
+                  <span className={`mt-1 text-xs ${p.kind !== 'service' && p.stockQuantity <= 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                    {p.kind === 'service' ? 'Service' : p.stockQuantity <= 0 ? 'Out of stock' : `${p.stockQuantity} in stock`}
                   </span>
                 </button>
               ))}
@@ -437,7 +410,7 @@ export function POS() {
                 </div>
               )}
 
-              <PaymentPicker value={paymentMethod} onChange={setPaymentMethod} label="Paid with (optional)" />
+              <PaymentsEditor total={total} value={payment} onChange={setPayment} label="Paid with (optional)" />
 
               <div className="mt-4 flex flex-col gap-1 text-sm">
                 <div className="flex items-center justify-between">
@@ -554,7 +527,8 @@ export function POS() {
                             refundMethod === '' ? 'border-navy-800 bg-navy-800 text-white' : 'border-slate-200 text-slate-600 hover:border-navy-400'
                           }`}
                         >
-                          {selectedTxn.paymentMethod ? `Same (${PAYMENT_METHOD_LABELS[selectedTxn.paymentMethod]})` : 'Same as sale'}
+                          {/* A split or unrecorded sale has no single method to repeat, so the refund stays unrecorded unless one is picked. */}
+                          {selectedTxn.payments.length === 1 ? `Same (${PAYMENT_METHOD_LABELS[selectedTxn.payments[0].method]})` : 'Not recorded'}
                         </button>
                         {PAYMENT_OPTIONS.map((method) => (
                           <button
