@@ -59,6 +59,8 @@ export function useCheckout() {
 
 export interface UpdateSaleInput {
   id: string;
+  /** The client the sale belongs to; null makes it a walk-in. */
+  clientId?: string | null;
   /** Cairo wall time, "YYYY-MM-DDTHH:mm" — the server applies the clinic's UTC offset. */
   occurredAt?: string;
   payments?: PaymentLine[];

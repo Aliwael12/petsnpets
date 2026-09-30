@@ -212,9 +212,10 @@ export class SalesService {
   }
 
   /**
-   * Corrects when a sale happened and/or how it was paid. Open to every role (the till is
-   * everyone's), and always audited with the before and after, so a correction is never
-   * silent. Nothing else about a sale is editable here: items and prices stay as rung up.
+   * Corrects who a sale was for, when it happened and/or how it was paid. Open to every role
+   * (the till is everyone's), and always audited with the before and after, so a correction
+   * is never silent. Nothing else about a sale is editable here: items and prices stay as
+   * rung up.
    */
   async update(id: string, dto: UpdateSaleDto, actor: Actor) {
     return this.db.transaction(async (tx) => {
@@ -224,6 +225,24 @@ export class SalesService {
         .select({ method: transactionPayments.method, amount: transactionPayments.amount })
         .from(transactionPayments)
         .where(eq(transactionPayments.transactionId, id));
+
+      let customer = { clientId: before.clientId, customerName: before.customerName };
+      if (dto.clientId !== undefined && dto.clientId !== before.clientId) {
+        // A discount belongs to one client and was spent on this sale; moving the sale to
+        // someone else would leave that client's discount attached to a stranger's bill.
+        if (before.discountId) {
+          throw new ValidationAppError('This sale used a customer discount, so its customer can’t be changed.');
+        }
+        if (dto.clientId === null) {
+          customer = { clientId: null, customerName: WALK_IN_CUSTOMER_NAME };
+        } else {
+          // Same rule as checkout: the name comes from the client record, never free text.
+          const [client] = await tx.select({ name: clients.name }).from(clients).where(eq(clients.id, dto.clientId)).limit(1);
+          if (!client) throw new NotFoundAppError('Client', dto.clientId);
+          customer = { clientId: dto.clientId, customerName: client.name };
+        }
+        await tx.update(transactions).set(customer).where(eq(transactions.id, id));
+      }
 
       let occurredAt = before.createdAt;
       if (dto.occurredAt !== undefined) {
@@ -248,9 +267,9 @@ export class SalesService {
         }
       }
 
-      const snapshot = (at: Date, paid: PaymentLine[]) => ({
+      const snapshot = (name: string, at: Date, paid: PaymentLine[]) => ({
         invoice: `INV-${before.invoiceYear}-${String(before.invoiceNo).padStart(5, '0')}`,
-        customer: before.customerName,
+        customer: name,
         occurredAt: at.toISOString(),
         payments: paid,
       });
@@ -259,8 +278,8 @@ export class SalesService {
         action: 'sale.update',
         entityType: 'transaction',
         entityId: id,
-        before: snapshot(before.createdAt, beforePayments),
-        after: snapshot(occurredAt, payments),
+        before: snapshot(before.customerName, before.createdAt, beforePayments),
+        after: snapshot(customer.customerName, occurredAt, payments),
       });
 
       const row = await tx.query.transactions.findFirst({ where: eq(transactions.id, id), with: SALE_RELATIONS });

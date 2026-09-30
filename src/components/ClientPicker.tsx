@@ -5,7 +5,15 @@ import { Input } from './ui';
 
 /** Search-and-pick a client by name or phone. Renders the chosen client as a card with a
  *  "Change" link once one is picked. */
-export function ClientPicker({ value, onChange }: { value: string; onChange: (clientId: string) => void }) {
+export function ClientPicker({
+  value,
+  onChange,
+  autoFocus = true,
+}: {
+  value: string;
+  onChange: (clientId: string) => void;
+  autoFocus?: boolean;
+}) {
   const { data: clients = [] } = useClients();
   const [search, setSearch] = useState('');
 
@@ -41,7 +49,7 @@ export function ClientPicker({ value, onChange }: { value: string; onChange: (cl
     <div className="relative">
       <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
       <Input
-        autoFocus
+        autoFocus={autoFocus}
         placeholder="Search customer by name or phone"
         value={search}
         onChange={(e) => setSearch(e.target.value)}

@@ -7,6 +7,7 @@ import { openInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
 import { Badge, Button, Card, EmployeeTag, EmptyState, Input, Modal, Select, formatCurrency, formatDateTime } from '../components/ui';
 import { PaymentsEditor, draftFromPayments, paymentsFromDraft, type PaymentDraft } from '../components/PaymentsEditor';
+import { ClientPicker } from '../components/ClientPicker';
 import { FileText, Loader2, Pencil } from 'lucide-react';
 import { PAYMENT_METHOD_LABELS, type PaymentLine, type Transaction } from '../types';
 import { toBusinessDateTimeInput } from '../lib/timezone';
@@ -80,10 +81,13 @@ function DateTime12Input({ value, onChange, max }: { value: string; onChange: (n
   );
 }
 
-/** Fixes when a sale happened and how it was paid. Items and prices stay as rung up —
+/** Fixes who a sale was for, when it happened and how it was paid. Items and prices stay as rung up —
  *  changing those is what a refund is for. */
 function EditSaleModal({ sale, onClose }: { sale: Transaction; onClose: () => void }) {
   const updateSale = useUpdateSale();
+  // '' is a walk-in, matching the POS. A sale that spent a client's discount stays theirs.
+  const originalClientId = sale.clientId ?? '';
+  const [clientId, setClientId] = useState(originalClientId);
   const originalTime = toBusinessDateTimeInput(sale.createdAt);
   const [occurredAt, setOccurredAt] = useState(originalTime);
   const [payment, setPayment] = useState<PaymentDraft>(() => draftFromPayments(sale.payments));
@@ -94,15 +98,17 @@ function EditSaleModal({ sale, onClose }: { sale: Transaction; onClose: () => vo
       toast.error(paid.error);
       return;
     }
+    const clientChanged = clientId !== originalClientId;
     const timeChanged = occurredAt !== originalTime;
     const paymentsChanged = !sameLines(paid.payments, sale.payments);
-    if (!timeChanged && !paymentsChanged) {
+    if (!clientChanged && !timeChanged && !paymentsChanged) {
       onClose();
       return;
     }
     updateSale.mutate(
       {
         id: sale.id,
+        clientId: clientChanged ? clientId || null : undefined,
         occurredAt: timeChanged ? occurredAt : undefined,
         payments: paymentsChanged ? paid.payments : undefined,
       },
@@ -120,8 +126,20 @@ function EditSaleModal({ sale, onClose }: { sale: Transaction; onClose: () => vo
     <Modal title={`Edit ${invoiceLabel(sale)}`} onClose={onClose}>
       <div className="flex flex-col gap-1">
         <p className="text-sm text-slate-500">
-          {sale.customerName} · <span className="font-semibold text-navy-950">{formatCurrency(sale.total)}</span>
+          Bill total <span className="font-semibold text-navy-950">{formatCurrency(sale.total)}</span>
         </p>
+        <p className="mt-3 text-xs font-medium text-slate-500">Customer</p>
+        {sale.discountId ? (
+          <>
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-navy-950">{sale.customerName}</p>
+            <p className="mt-1 text-xs text-slate-400">This sale used the customer’s discount, so the customer can’t be changed.</p>
+          </>
+        ) : (
+          <>
+            <ClientPicker value={clientId} onChange={setClientId} autoFocus={false} />
+            {!clientId && <p className="mt-1 text-xs text-slate-400">No customer picked — the sale is saved as a walk-in.</p>}
+          </>
+        )}
         <label className="mt-3 block text-xs font-medium text-slate-500" htmlFor="sale-occurred-at">
           Date and time
         </label>
@@ -258,7 +276,7 @@ export function Transactions() {
                     <td className="whitespace-nowrap px-5 py-3 text-right">
                       <button
                         onClick={() => setEditing(t)}
-                        title="Edit the date, time or payment"
+                        title="Edit the customer, date, time or payment"
                         className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-navy-700 hover:bg-slate-100"
                       >
                         <Pencil size={14} />

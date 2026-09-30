@@ -37,7 +37,7 @@ export class SalesController {
     return this.sales.checkout(idempotencyKey, dto, actor);
   }
 
-  /** Every role, like checkout: whoever rang it up can fix when and how it was paid. */
+  /** Every role, like checkout: whoever rang it up can fix who it was for, when, and how it was paid. */
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
