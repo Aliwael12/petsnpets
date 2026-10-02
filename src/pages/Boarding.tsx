@@ -230,7 +230,11 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
 
   const [clientId, setClientId] = useState(editing?.clientId ?? '');
   const [petId, setPetId] = useState(editing?.petId ?? '');
-  const [total, setTotal] = useState(editing ? String(editing.totalAmount / 100) : '');
+  // The employee enters the price per day; the stay's total is days × that price. An existing
+  // stay opens with its total spread back over its days.
+  const [perDay, setPerDay] = useState(() =>
+    editing ? String(Math.round(editing.totalAmount / Math.max(1, nights(editing.startDate, editing.endDate))) / 100) : '',
+  );
   const [paid, setPaid] = useState(editing ? String(editing.paidAmount / 100) : '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [startDate, setStartDate] = useState(editing?.startDate ?? todayKey());
@@ -240,16 +244,17 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
 
   const { data: pets = [], isLoading: petsLoading } = useReminderPets(editing ? '' : clientId);
 
-  const totalAmount = toPiastres(total);
   // Days are counted the way the stays list counts nights; a same-day stay counts as one day.
   const stayDays = startDate && endDate && endDate >= startDate ? Math.max(1, nights(startDate, endDate)) : 0;
+  const perDayAmount = toPiastres(perDay);
+  const totalAmount = stayDays * perDayAmount;
   const paidAmount = toPiastres(paid);
   const left = totalAmount - paidAmount;
 
   const submit = () => {
     if (!editing && !clientId) return toast.error('Pick the customer');
     if (!editing && !petId) return toast.error('Pick the pet that is staying');
-    if (!total || totalAmount < 0) return toast.error('Enter the total for the stay');
+    if (!perDay || perDayAmount < 0) return toast.error('Enter the cost per day');
     if (paidAmount < 0) return toast.error('Paid can’t be negative');
     if (!startDate || !endDate) return toast.error('Pick the start and end dates');
     if (endDate < startDate) return toast.error('The stay has to end on or after the day it starts');
@@ -344,20 +349,31 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Total for the stay (EGP)</label>
-            <Input type="number" min="0" value={total} onChange={(e) => setTotal(e.target.value)} />
-            {stayDays > 0 && (
-              <p className="mt-1 text-xs text-slate-500">
-                {stayDays} {stayDays === 1 ? 'day' : 'days'}
-                {totalAmount > 0 && ` · ${perDayLabel(totalAmount / stayDays)} per day`}
-              </p>
-            )}
+            <label className="mb-1 block text-xs font-medium text-slate-500">Cost per day (EGP)</label>
+            <Input type="number" min="0" value={perDay} onChange={(e) => setPerDay(e.target.value)} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Paid so far (EGP)</label>
             <Input type="number" min="0" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" />
           </div>
         </div>
+        <div className="rounded-xl border border-navy-200 bg-navy-50 px-4 py-3">
+          {stayDays > 0 && perDay ? (
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm text-navy-800">
+                {stayDays} {stayDays === 1 ? 'day' : 'days'} × {perDayLabel(perDayAmount)}
+              </span>
+              <span className="text-lg font-semibold tabular-nums text-navy-950">Total {formatCurrency(totalAmount)}</span>
+            </div>
+          ) : (
+            <p className="text-sm text-navy-800">
+              {stayDays > 0
+                ? `${stayDays} ${stayDays === 1 ? 'day' : 'days'}. Enter the cost per day to see the total.`
+                : 'Pick the start and end dates and the cost per day to see the total.'}
+            </p>
+          )}
+        </div>
+
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500">Paid with (optional)</label>
           <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod | '')}>
@@ -376,7 +392,7 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
                 : 'Whatever is paid is recorded as a sale on the Transactions page.'}
           </p>
         </div>
-        {total && (
+        {perDay && stayDays > 0 && (
           <p className={`text-sm font-medium ${left > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
             {left > 0 ? `Left to pay: ${formatCurrency(left)}` : left < 0 ? `Overpaid by ${formatCurrency(-left)}` : 'Paid in full'}
           </p>
