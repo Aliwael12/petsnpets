@@ -20,7 +20,7 @@ export class ClientsController {
 
   // Every role — cashiers included — can find, open, create and correct clients: checkout
   // links each sale to one, and whoever is at the desk is the one who hears that a number
-  // changed. Deleting a client record stays doctor/nurse only.
+  // changed. Deleting a client record is admin only.
   @Get()
   @Roles('doctor', 'nurse', 'cashier')
   list(@Query(new ZodValidationPipe(listClientsQuerySchema)) query: ListClientsQueryDto) {
@@ -46,6 +46,7 @@ export class ClientsController {
   }
 
   @Delete(':id')
+  @Roles('admin')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     await this.clients.remove(id, actor);

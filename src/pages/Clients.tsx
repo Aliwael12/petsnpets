@@ -47,10 +47,9 @@ export function Clients() {
     [unsortedClients, search],
   );
   const me = useAuthStore((s) => s.employee);
-  // Every employee can correct a client's name and phones; deleting a client stays
-  // doctor/nurse territory on the server, so cashiers get that button hidden rather than one
-  // that can only fail.
-  const canDeleteClients = me?.role !== 'cashier';
+  // Every employee can correct a client's name and phones; deleting a client is admin only
+  // on the server, so everyone else gets that button hidden rather than one that can only fail.
+  const canDeleteClients = me?.role === 'admin';
   // The full staff list (former employees included) is behind "manage employees"; everyone
   // else names the history from the active roster the sign-in screen already uses.
   const canListAllStaff = canManageEmployees(me);
