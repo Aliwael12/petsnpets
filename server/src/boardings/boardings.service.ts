@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
-import { boardings, pets } from '../db/schema';
+import { boardings, pets, refunds, transactions } from '../db/schema';
 import { SalesService } from '../sales/sales.service';
 import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
@@ -82,6 +82,27 @@ export class BoardingsService {
 
       await this.audit.log(tx, { actorId: actor.id, action: 'boarding.update', entityType: 'boarding', entityId: id, before, after });
       return after;
+    });
+  }
+
+  /**
+   * Admin only. Removes the stay and every sale its payments were rung up as, so the money
+   * comes off income too (each sale is deleted the same way the admin deletes any sale, and
+   * a full copy of the stay is kept in the audit log). Refused if any of those sales has
+   * been refunded: the refund has its own money trail.
+   */
+  async remove(id: string, actor: Actor) {
+    await this.db.transaction(async (tx) => {
+      const [stay] = await tx.select().from(boardings).where(eq(boardings.id, id)).for('update');
+      if (!stay) throw new NotFoundAppError('Boarding', id);
+      const sales = await tx.select({ id: transactions.id }).from(transactions).where(eq(transactions.boardingId, id));
+      if (sales.length > 0) {
+        const refunded = await tx.select({ id: refunds.id }).from(refunds).where(inArray(refunds.transactionId, sales.map((t) => t.id))).limit(1);
+        if (refunded.length > 0) throw new ValidationAppError('A payment on this stay has been refunded, so the stay can\u2019t be deleted.');
+      }
+      for (const sale of sales) await this.sales.removeInTx(tx, sale.id, actor);
+      await tx.delete(boardings).where(eq(boardings.id, id));
+      await this.audit.log(tx, { actorId: actor.id, action: 'boarding.delete', entityType: 'boarding', entityId: id, before: { ...stay, salesDeleted: sales.length } });
     });
   }
 }

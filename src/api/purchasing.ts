@@ -112,3 +112,29 @@ export function useSettleSupplierPayment() {
     },
   });
 }
+
+/** Admin only: removes a shipment, its cost from what's owed, and the stock it added. */
+export function useDeleteSupplierOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/purchasing/supplier-orders/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['supplier-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['supplier-balances'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    },
+  });
+}
+
+/** Admin only: removes a settlement; the amount is owed to the supplier again. */
+export function useDeleteSupplierPayment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/purchasing/supplier-payments/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['supplier-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['supplier-balances'] });
+    },
+  });
+}

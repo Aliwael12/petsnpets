@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
-import { Pencil, Plus } from 'lucide-react';
-import { useBoardings, useCreateBoarding, useUpdateBoarding } from '../api/boardings';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { useAuthStore } from '../store/useAuthStore';
+import { ConfirmDelete } from '../components/ConfirmDelete';
+import { useBoardings, useCreateBoarding, useDeleteBoarding, useUpdateBoarding } from '../api/boardings';
 import { useReminderPets } from '../api/reminders';
 import { ApiError } from '../api/client';
 import { todayKey } from '../lib/timezone';
@@ -36,6 +38,9 @@ export function Boarding() {
   const { data: stays = [], isLoading } = useBoardings();
   const [filter, setFilter] = useState<Filter>('staying');
   const [modal, setModal] = useState<{ editing: BoardingStay | null } | null>(null);
+  const isAdmin = useAuthStore((st) => st.employee?.role === 'admin');
+  const [deleting, setDeleting] = useState<BoardingStay | null>(null);
+  const deleteStay = useDeleteBoarding();
 
   const today = todayKey();
   const filtered = useMemo(
@@ -158,6 +163,15 @@ export function Boarding() {
                         >
                           <Pencil size={15} />
                         </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => setDeleting(s)}
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="Delete stay"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -169,6 +183,32 @@ export function Boarding() {
       </Card>
 
       {modal && <StayModal editing={modal.editing} onClose={() => setModal(null)} />}
+      {deleting && (
+        <ConfirmDelete
+          title="Delete stay"
+          confirmLabel="Delete stay"
+          pending={deleteStay.isPending}
+          onClose={() => setDeleting(null)}
+          onConfirm={() =>
+            deleteStay.mutate(deleting.id, {
+              onSuccess: () => {
+                toast.success('Stay deleted');
+                setDeleting(null);
+              },
+              onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not delete the stay'),
+            })
+          }
+        >
+          <p>
+            Delete {deleting.pet?.name ?? 'this pet'}&rsquo;s stay ({deleting.client?.name ?? 'client'})? This can&rsquo;t be undone.
+          </p>
+          {deleting.paidAmount > 0 && (
+            <p className="text-xs text-slate-500">
+              The {formatCurrency(deleting.paidAmount)} paid on it is removed too: the boarding sales it created are deleted, so it comes off income.
+            </p>
+          )}
+        </ConfirmDelete>
+      )}
     </div>
   );
 }

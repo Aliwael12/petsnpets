@@ -4,7 +4,7 @@ import { and, asc, eq, sql as rawSql } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
-import { products, suppliers, supplierOrders, supplierPayments } from '../db/schema';
+import { products, stockMovements, suppliers, supplierOrders, supplierPayments } from '../db/schema';
 import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
@@ -272,6 +272,45 @@ export class PurchasingService {
       });
 
       return payment;
+    });
+  }
+
+  /**
+   * Admin only. Deletes a logged shipment: its cost comes off what's owed to the supplier
+   * and off stock costs, and the units it added go back out of stock. Refused if some of
+   * those units have since been sold (the count would go below zero) — fix the count on the
+   * Products page first.
+   */
+  async removeOrder(id: string, actor: Actor) {
+    await this.db.transaction(async (tx) => {
+      const [order] = await tx.select().from(supplierOrders).where(eq(supplierOrders.id, id)).for('update');
+      if (!order) throw new NotFoundAppError('SupplierOrder', id);
+      const movements = await tx.select().from(stockMovements).where(eq(stockMovements.refId, id));
+      const netByProduct = new Map<string, number>();
+      for (const m of movements) netByProduct.set(m.productId, (netByProduct.get(m.productId) ?? 0) + m.delta);
+      for (const productId of [...netByProduct.keys()].sort()) {
+        const net = netByProduct.get(productId)!;
+        const [product] = await tx.select().from(products).where(eq(products.id, productId)).for('update');
+        if (product && product.kind !== 'service' && product.stockQuantity - net < 0) {
+          throw new ValidationAppError(
+            `Only ${product.stockQuantity} of "${product.name}" are left in stock, but this shipment added ${net}. Some were already sold, so the shipment can\u2019t be deleted.`,
+          );
+        }
+        await tx.update(products).set({ stockQuantity: rawSql`${products.stockQuantity} - ${net}` }).where(eq(products.id, productId));
+      }
+      await tx.delete(stockMovements).where(eq(stockMovements.refId, id));
+      await tx.delete(supplierOrders).where(eq(supplierOrders.id, id));
+      await this.audit.log(tx, { actorId: actor.id, action: 'supplier_order.delete', entityType: 'supplier_order', entityId: id, before: { ...order, stockMovements: movements } });
+    });
+  }
+
+  /** Admin only. Deletes a settlement: the amount goes back onto what's owed to the supplier. */
+  async removePayment(id: string, actor: Actor) {
+    await this.db.transaction(async (tx) => {
+      const [payment] = await tx.select().from(supplierPayments).where(eq(supplierPayments.id, id)).for('update');
+      if (!payment) throw new NotFoundAppError('SupplierPayment', id);
+      await tx.delete(supplierPayments).where(eq(supplierPayments.id, id));
+      await this.audit.log(tx, { actorId: actor.id, action: 'supplier_payment.delete', entityType: 'supplier_payment', entityId: id, before: payment });
     });
   }
 }

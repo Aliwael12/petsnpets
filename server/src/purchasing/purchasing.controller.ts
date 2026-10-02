@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { PurchasingService } from './purchasing.service';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { Roles } from '../auth/roles.decorator';
@@ -56,6 +56,22 @@ export class PurchasingController {
 
   /** Every supplier's running balance — what they've been shipped vs. what's been paid.
    *  Same access as the order list: it's still a fact about clinic spending. */
+  /** Admin only: removes a shipment and the stock it added. */
+  @Delete('supplier-orders/:id')
+  @Roles('admin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeOrder(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
+    await this.purchasing.removeOrder(id, actor);
+  }
+
+  /** Admin only: removes a settlement; the amount is owed again. */
+  @Delete('supplier-payments/:id')
+  @Roles('admin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removePayment(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
+    await this.purchasing.removePayment(id, actor);
+  }
+
   @Get('supplier-balances')
   @Permissions('financials:read')
   supplierBalances() {

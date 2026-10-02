@@ -45,3 +45,16 @@ export function useUpdateBoarding() {
     },
   });
 }
+
+/** Admin only: removes the stay and the sales its payments were rung up as. */
+export function useDeleteBoarding() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/boardings/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['boardings'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    },
+  });
+}

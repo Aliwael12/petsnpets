@@ -371,59 +371,62 @@ export class SalesService {
    * A refunded sale can't be deleted: the refund has its own money and stock trail.
    */
   async remove(id: string, actor: Actor) {
-    await this.db.transaction(async (tx) => {
-      const [txn] = await tx.select().from(transactions).where(eq(transactions.id, id)).for('update');
-      if (!txn) throw new NotFoundAppError('Transaction', id);
-      const [{ refunded }] = await tx.select({ refunded: rawSql<number>`count(*)::int` }).from(refunds).where(eq(refunds.transactionId, id));
-      if (refunded > 0) {
-        throw new ValidationAppError('This sale has refunds recorded against it, so it can’t be deleted.');
-      }
+    await this.db.transaction((tx) => this.removeInTx(tx, id, actor));
+  }
 
-      const items = await tx.select().from(transactionItems).where(eq(transactionItems.transactionId, id));
-      const payments = await tx
-        .select({ method: transactionPayments.method, amount: transactionPayments.amount })
-        .from(transactionPayments)
-        .where(eq(transactionPayments.transactionId, id));
-      const movements = await tx.select().from(stockMovements).where(eq(stockMovements.refId, id));
+  /** remove(), inside a caller's transaction: deleting a boarding stay removes its sales. */
+  async removeInTx(tx: Database, id: string, actor: Actor) {
+    const [txn] = await tx.select().from(transactions).where(eq(transactions.id, id)).for('update');
+    if (!txn) throw new NotFoundAppError('Transaction', id);
+    const [{ refunded }] = await tx.select({ refunded: rawSql<number>`count(*)::int` }).from(refunds).where(eq(refunds.transactionId, id));
+    if (refunded > 0) {
+      throw new ValidationAppError('This sale has refunds recorded against it, so it can’t be deleted.');
+    }
 
-      // Undo the sale's net effect on each product's count (including any "topped up"
-      // adjustment it triggered), then drop its ledger rows.
-      const netByProduct = new Map<string, number>();
-      for (const m of movements) netByProduct.set(m.productId, (netByProduct.get(m.productId) ?? 0) + m.delta);
-      for (const productId of [...netByProduct.keys()].sort()) {
-        await tx
-          .update(products)
-          .set({ stockQuantity: rawSql`${products.stockQuantity} - ${netByProduct.get(productId)!}` })
-          .where(eq(products.id, productId));
-      }
-      await tx.delete(stockMovements).where(eq(stockMovements.refId, id));
-      if (txn.discountId) {
-        await tx.update(discounts).set({ usedInTransactionId: null }).where(eq(discounts.id, txn.discountId));
-      }
-      if (txn.boardingId) {
-        // The money this sale recorded is no longer paid on the stay.
-        await tx
-          .update(boardings)
-          .set({ paidAmount: rawSql`greatest(${boardings.paidAmount} - ${txn.total}, 0)`, updatedAt: new Date() })
-          .where(eq(boardings.id, txn.boardingId));
-      }
-      await tx.delete(transactions).where(eq(transactions.id, id)); // items and payments cascade
+    const items = await tx.select().from(transactionItems).where(eq(transactionItems.transactionId, id));
+    const payments = await tx
+      .select({ method: transactionPayments.method, amount: transactionPayments.amount })
+      .from(transactionPayments)
+      .where(eq(transactionPayments.transactionId, id));
+    const movements = await tx.select().from(stockMovements).where(eq(stockMovements.refId, id));
 
-      await this.audit.log(tx, {
-        actorId: actor.id,
-        action: 'sale.delete',
-        entityType: 'transaction',
-        entityId: id,
-        before: {
-          invoice: `INV-${txn.invoiceYear}-${String(txn.invoiceNo).padStart(5, '0')}`,
-          customer: txn.customerName,
-          total: txn.total,
-          transaction: txn,
-          items,
-          payments,
-          stockMovements: movements,
-        },
-      });
+    // Undo the sale's net effect on each product's count (including any "topped up"
+    // adjustment it triggered), then drop its ledger rows.
+    const netByProduct = new Map<string, number>();
+    for (const m of movements) netByProduct.set(m.productId, (netByProduct.get(m.productId) ?? 0) + m.delta);
+    for (const productId of [...netByProduct.keys()].sort()) {
+      await tx
+        .update(products)
+        .set({ stockQuantity: rawSql`${products.stockQuantity} - ${netByProduct.get(productId)!}` })
+        .where(eq(products.id, productId));
+    }
+    await tx.delete(stockMovements).where(eq(stockMovements.refId, id));
+    if (txn.discountId) {
+      await tx.update(discounts).set({ usedInTransactionId: null }).where(eq(discounts.id, txn.discountId));
+    }
+    if (txn.boardingId) {
+      // The money this sale recorded is no longer paid on the stay.
+      await tx
+        .update(boardings)
+        .set({ paidAmount: rawSql`greatest(${boardings.paidAmount} - ${txn.total}, 0)`, updatedAt: new Date() })
+        .where(eq(boardings.id, txn.boardingId));
+    }
+    await tx.delete(transactions).where(eq(transactions.id, id)); // items and payments cascade
+
+    await this.audit.log(tx, {
+      actorId: actor.id,
+      action: 'sale.delete',
+      entityType: 'transaction',
+      entityId: id,
+      before: {
+        invoice: `INV-${txn.invoiceYear}-${String(txn.invoiceNo).padStart(5, '0')}`,
+        customer: txn.customerName,
+        total: txn.total,
+        transaction: txn,
+        items,
+        payments,
+        stockMovements: movements,
+      },
     });
   }
 

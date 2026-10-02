@@ -4,6 +4,8 @@ import { useSales } from '../api/sales';
 import { useRefunds } from '../api/refunds';
 import {
   useCreateSupplierOrder,
+  useDeleteSupplierOrder,
+  useDeleteSupplierPayment,
   useSettleSupplierPayment,
   useSupplierBalances,
   useSupplierOrders,
@@ -44,7 +46,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { FileText, Loader2, Plus } from 'lucide-react';
+import { FileText, Loader2, Plus, Trash2 } from 'lucide-react';
+import { ConfirmDelete } from '../components/ConfirmDelete';
 import { PAYMENT_METHOD_LABELS, EXPENSE_CATEGORY_LABELS, type PaymentMethod, type SupplierOrder, type SupplierPayment } from '../types';
 
 const emptyOrderForm = {
@@ -103,6 +106,10 @@ export function MoneyInOut() {
   const [form, setForm] = useState(emptyOrderForm);
   const [refundPdfPending, setRefundPdfPending] = useState<string | null>(null);
   const [settleModalOpen, setSettleModalOpen] = useState(false);
+  const isAdmin = useAuthStore((st) => st.employee?.role === 'admin');
+  const [deletingRow, setDeletingRow] = useState<{ kind: 'order'; order: SupplierOrder } | { kind: 'payment'; payment: SupplierPayment } | null>(null);
+  const deleteOrder = useDeleteSupplierOrder();
+  const deletePayment = useDeleteSupplierPayment();
   const [settleForm, setSettleForm] = useState({ supplierId: '', amount: '', paymentMethod: '' as PaymentMethod | '' });
 
   // The supplier filter narrows the shipments table below, the Expenses tile above (via the
@@ -402,6 +409,7 @@ export function MoneyInOut() {
                   <th className="px-5 py-3 font-medium">Logged by</th>
                   <th className="px-5 py-3 font-medium">Date</th>
                   <th className="px-5 py-3 font-medium text-right">Amount</th>
+                  {isAdmin && <th className="px-5 py-3" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -425,6 +433,17 @@ export function MoneyInOut() {
                         </td>
                         <td className="px-5 py-3 text-slate-500">{formatDate(p.paidAt)}</td>
                         <td className="px-5 py-3 text-right font-semibold text-emerald-700">−{formatCurrency(p.amount)}</td>
+                        {isAdmin && (
+                          <td className="px-5 py-3 text-right">
+                            <button
+                              onClick={() => setDeletingRow({ kind: 'payment', payment: p })}
+                              className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              title="Delete"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   }
@@ -467,6 +486,17 @@ export function MoneyInOut() {
                       </td>
                       <td className="px-5 py-3 text-slate-500">{formatDate(o.receivedAt)}</td>
                       <td className="px-5 py-3 text-right font-semibold text-navy-950">{formatCurrency(o.costTotal)}</td>
+                      {isAdmin && (
+                        <td className="px-5 py-3 text-right">
+                          <button
+                            onClick={() => setDeletingRow({ kind: 'order', order: o })}
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="Delete"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -797,6 +827,38 @@ export function MoneyInOut() {
             </div>
           </div>
         </Modal>
+      )}
+      {deletingRow && (
+        <ConfirmDelete
+          title={deletingRow.kind === 'order' ? 'Delete shipment' : 'Delete settlement'}
+          confirmLabel={deletingRow.kind === 'order' ? 'Delete shipment' : 'Delete settlement'}
+          pending={deleteOrder.isPending || deletePayment.isPending}
+          onClose={() => setDeletingRow(null)}
+          onConfirm={() => {
+            const done = {
+              onSuccess: () => {
+                toast.success(deletingRow.kind === 'order' ? 'Shipment deleted' : 'Settlement deleted');
+                setDeletingRow(null);
+              },
+              onError: (err: unknown) => toast.error(err instanceof ApiError ? err.message : 'Could not delete it'),
+            };
+            if (deletingRow.kind === 'order') deleteOrder.mutate(deletingRow.order.id, done);
+            else deletePayment.mutate(deletingRow.payment.id, done);
+          }}
+        >
+          {deletingRow.kind === 'order' ? (
+            <p>
+              Delete the shipment of {deletingRow.order.quantity} × {deletingRow.order.product?.name ?? 'product'} from{' '}
+              {deletingRow.order.supplier?.name ?? 'the supplier'} ({formatCurrency(deletingRow.order.costTotal)})? Its cost comes off what&rsquo;s
+              owed to the supplier and off stock costs, and the {deletingRow.order.quantity} units go back out of stock. This can&rsquo;t be undone.
+            </p>
+          ) : (
+            <p>
+              Delete the {formatCurrency(deletingRow.payment.amount)} settlement to {deletingRow.payment.supplier?.name ?? 'the supplier'}? That amount
+              will be owed to them again. This can&rsquo;t be undone.
+            </p>
+          )}
+        </ConfirmDelete>
       )}
     </div>
   );
