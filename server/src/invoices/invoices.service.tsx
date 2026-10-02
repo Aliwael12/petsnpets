@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { eq } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
-import { employees, products, refundItems, refunds, transactions } from '../db/schema';
+import { boardings, employees, products, refundItems, refunds, transactions } from '../db/schema';
 import { NotFoundAppError, AppError } from '../common/errors/app-error';
 import { HttpStatus } from '@nestjs/common';
 import { SUPABASE_ADMIN } from '../supabase/supabase.module';
@@ -55,6 +55,14 @@ export class InvoicesService {
     });
     if (!txn) throw new NotFoundAppError('Transaction', transactionId);
 
+    // A sale rung up for a boarding / hospitalization payment carries the stay's details.
+    const stay = txn.boardingId
+      ? await this.db.query.boardings.findFirst({
+          where: eq(boardings.id, txn.boardingId),
+          with: { pet: { columns: { name: true } } },
+        })
+      : undefined;
+
     // Sales predate client tracking for some old rows (customerName was free text before
     // clientId existed) — client can legitimately be absent.
     const primaryPhone = txn.client
@@ -83,6 +91,19 @@ export class InvoicesService {
             : null,
         }}
         soldByName={txn.soldByEmployee.name}
+        stay={
+          stay
+            ? {
+                kind: stay.kind,
+                petName: stay.pet?.name ?? null,
+                startDate: stay.startDate,
+                endDate: stay.endDate,
+                totalAmount: stay.totalAmount,
+                paidAmount: stay.paidAmount,
+                note: stay.note,
+              }
+            : null
+        }
         timeZone={this.config.getOrThrow<string>('TIMEZONE')}
       />,
     ).toBuffer();

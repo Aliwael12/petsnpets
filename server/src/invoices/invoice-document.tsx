@@ -20,6 +20,10 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
     metaLabel: { color: '#94a3b8', fontSize: 8, textAlign: 'right' },
     metaValue: { fontSize: 10, textAlign: 'right', marginBottom: 4 },
     detailsRow: { flexDirection: 'row', marginBottom: 16 },
+    stayBox: { marginBottom: 14, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 4, fontSize: 9 },
+    stayGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+    stayRow: { width: '47%', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
+    stayLabel: { color: '#64748b' },
     detailsCol: { flex: 1 },
     section: { marginBottom: 16 },
     sectionLabel: { fontSize: 8, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 3 },
@@ -61,7 +65,7 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
     return discount.kind === 'percent' ? `Discount (${discount.value}%)` : 'Discount';
   }
 
-  return function InvoiceDocument({ transaction, soldByName, timeZone }: InvoiceDocProps) {
+  return function InvoiceDocument({ transaction, soldByName, timeZone, stay }: InvoiceDocProps) {
     const invoiceNo = `INV-${transaction.invoiceYear}-${String(transaction.invoiceNo).padStart(5, '0')}`;
     const client = transaction.client;
     const pets = client?.pets ?? [];
@@ -97,6 +101,42 @@ export function createInvoiceDocument(reactPdf: typeof ReactPdf) {
             <Text style={styles.sectionLabel}>Served by</Text>
             <Text>{soldByName}</Text>
           </View>
+
+          {stay && (
+            <View style={styles.stayBox}>
+              <Text style={styles.sectionLabel}>{stay.kind === 'hospitalization' ? 'Hospitalization' : 'Boarding'} details</Text>
+              {(() => {
+                const days = stayDays(stay.startDate, stay.endDate);
+                const rows: [string, string][] = [
+                  ['Type', stay.kind === 'hospitalization' ? 'Hospitalization' : 'Boarding'],
+                  ['Pet', stay.petName ?? '—'],
+                  ['From', formatDay(stay.startDate)],
+                  ['To', formatDay(stay.endDate)],
+                  ['Days', String(days)],
+                  ['Cost per day', money(Math.round(stay.totalAmount / days))],
+                  ['Total for the stay', money(stay.totalAmount)],
+                  ['Paid so far', money(stay.paidAmount)],
+                  ['Left to pay', money(Math.max(0, stay.totalAmount - stay.paidAmount))],
+                ];
+                return (
+                  <View style={styles.stayGrid}>
+                    {rows.map(([label, value]) => (
+                      <View style={styles.stayRow} key={label}>
+                        <Text style={styles.stayLabel}>{label}</Text>
+                        <Text>{value}</Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()}
+              {stay.note ? (
+                <View style={{ marginTop: 4 }}>
+                  <Text style={styles.stayLabel}>Comments</Text>
+                  <Text>{stay.note}</Text>
+                </View>
+              ) : null}
+            </View>
+          )}
 
           <View style={styles.table}>
             <View style={styles.tableHeaderRow}>
@@ -202,6 +242,16 @@ export interface InvoiceDocProps {
     } | null;
   };
   soldByName: string;
+  /** Present on a sale rung up for a boarding / hospitalization payment. */
+  stay?: {
+    kind: 'boarding' | 'hospitalization';
+    petName: string | null;
+    startDate: string;
+    endDate: string;
+    totalAmount: number;
+    paidAmount: number;
+    note?: string | null;
+  } | null;
   /** The clinic's IANA timezone (the TIMEZONE setting), for the printed date and time. */
   timeZone: string;
 }
@@ -219,3 +269,15 @@ function formatWhen(value: Date | string, timeZone: string): string {
   }).format(new Date(value));
 }
 
+
+/** Days in a stay, counted like the Boarding page: start to end, a same-day stay is one day. */
+function stayDays(start: string, end: string): number {
+  return Math.max(1, Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000));
+}
+
+/** "02 Oct 2026" for a plain YYYY-MM-DD day. */
+function formatDay(dayKey: string): string {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' }).format(
+    new Date(`${dayKey}T12:00:00Z`),
+  );
+}
