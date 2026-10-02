@@ -283,24 +283,24 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
             <Input type="number" min="0" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" />
           </div>
         </div>
-        {paidAmount !== (editing?.paidAmount ?? 0) && (
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">
-              {paidAmount > (editing?.paidAmount ?? 0)
-                ? `Paid with: the ${formatCurrency(paidAmount - (editing?.paidAmount ?? 0))} taken now (optional)`
-                : `Given back with: the ${formatCurrency((editing?.paidAmount ?? 0) - paidAmount)} reduction (optional)`}
-            </label>
-            <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod | '')}>
-              <option value="">Not recorded</option>
-              {(['cash', 'instapay', 'card', 'vodafone_cash'] as PaymentMethod[]).map((m) => (
-                <option key={m} value={m}>
-                  {PAYMENT_METHOD_LABELS[m]}
-                </option>
-              ))}
-            </Select>
-            <p className="mt-1 text-xs text-slate-400">Money paid on a stay counts as income on the day it&rsquo;s entered.</p>
-          </div>
-        )}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500">Paid with (optional)</label>
+          <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod | '')}>
+            <option value="">Not recorded</option>
+            {(['cash', 'instapay', 'card', 'vodafone_cash'] as PaymentMethod[]).map((m) => (
+              <option key={m} value={m}>
+                {PAYMENT_METHOD_LABELS[m]}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-xs text-slate-400">
+            {paidAmount > (editing?.paidAmount ?? 0)
+              ? `The ${formatCurrency(paidAmount - (editing?.paidAmount ?? 0))} paid now counts as income today, under this method.`
+              : paidAmount < (editing?.paidAmount ?? 0)
+                ? `The ${formatCurrency((editing?.paidAmount ?? 0) - paidAmount)} reduction comes off income today.`
+                : 'Money paid on a stay counts as income on the day it’s entered.'}
+          </p>
+        </div>
         {total && (
           <p className={`text-sm font-medium ${left > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
             {left > 0 ? `Left to pay: ${formatCurrency(left)}` : left < 0 ? `Overpaid by ${formatCurrency(-left)}` : 'Paid in full'}
