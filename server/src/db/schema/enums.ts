@@ -27,7 +27,7 @@ export const phoneLabelEnum = pgEnum('phone_label', ['mobile', 'home', 'work', '
  * member: an enum value is selectable, and staff would pick it whenever unsure, at which
  * point the breakdown answers nothing. SQL NULL is unreachable from the API and therefore
  * can only ever mean "recorded before payment tracking existed". */
-export const paymentMethodEnum = pgEnum('payment_method', ['cash', 'instapay', 'card']);
+export const paymentMethodEnum = pgEnum('payment_method', ['cash', 'instapay', 'card', 'vodafone_cash']);
 export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
 
 export const discountKindEnum = pgEnum('discount_kind', ['percent', 'fixed']);

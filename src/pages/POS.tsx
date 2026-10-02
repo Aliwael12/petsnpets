@@ -11,6 +11,7 @@ import { openInvoice } from '../api/invoices';
 import { ApiError } from '../api/client';
 import { Badge, Button, Card, CardHeader, EmployeeTag, EmptyState, Input, Modal, PhoneListInput, Select, TabSwitch, formatCurrency, formatDateTime } from '../components/ui';
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../types';
+import { isExactIdQuery, matchesPersonQuery } from '../lib/search';
 import { EMPTY_PAYMENT_DRAFT, PaymentsEditor, paymentsFromDraft, type PaymentDraft } from '../components/PaymentsEditor';
 import { Minus, Plus, RotateCcw, Search, ShoppingCart, Trash2, UserPlus, UserRound } from 'lucide-react';
 
@@ -19,7 +20,7 @@ interface CartLine {
   quantity: number;
 }
 
-const PAYMENT_OPTIONS: PaymentMethod[] = ['cash', 'instapay', 'card'];
+const PAYMENT_OPTIONS: PaymentMethod[] = ['cash', 'instapay', 'card', 'vodafone_cash'];
 
 function discountAmountFor(subtotal: number, discount: { kind: 'percent' | 'fixed'; value: number } | undefined): number {
   if (!discount) return 0;
@@ -61,9 +62,11 @@ export function POS() {
 
   const selectedClient = clients.find((c) => c.id === clientId) ?? null;
   const clientMatches = useMemo(() => {
-    const q = clientSearch.trim().toLowerCase();
-    if (!q) return [];
-    return clients.filter((c) => c.name.toLowerCase().includes(q) || c.phones.some((p) => p.phone.toLowerCase().includes(q))).slice(0, 6);
+    if (!clientSearch.trim()) return [];
+    return clients
+      .filter((c) => matchesPersonQuery(clientSearch, { names: [c.name], phones: c.phones.map((p) => p.phone), legacyId: c.legacyId }))
+      .sort((a, b) => Number(isExactIdQuery(clientSearch, b.legacyId)) - Number(isExactIdQuery(clientSearch, a.legacyId)))
+      .slice(0, 6);
   }, [clients, clientSearch]);
 
   // --- Refund state ---
@@ -344,7 +347,7 @@ export function POS() {
                 <div className="relative">
                   <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <Input
-                    placeholder="Search customer by name or phone"
+                    placeholder="Search customer by name, phone or ID"
                     value={clientSearch}
                     onChange={(e) => setClientSearch(e.target.value)}
                     className="pl-8"
@@ -360,7 +363,9 @@ export function POS() {
                               className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-slate-50"
                             >
                               <span className="font-medium text-navy-950">{c.name}</span>
-                              <span className="text-xs text-slate-400">{c.phones[0]?.phone}</span>
+                              <span className="text-xs text-slate-400">
+                                {[c.legacyId != null ? `#${c.legacyId}` : null, c.phones[0]?.phone].filter(Boolean).join(' · ')}
+                              </span>
                             </button>
                           ))}
                         </div>
@@ -519,7 +524,7 @@ export function POS() {
 
                     <div className="mt-3">
                       <p className="mb-1.5 text-xs font-medium text-slate-500">Refunded with</p>
-                      <div className="grid grid-cols-4 gap-1.5">
+                      <div className="grid grid-cols-3 gap-1.5">
                         <button
                           type="button"
                           onClick={() => setRefundMethod('')}

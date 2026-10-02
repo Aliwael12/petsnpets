@@ -173,10 +173,11 @@ const CLINIC_WEBSITE_LABEL = 'eliteblueclinic.vercel.app';
 
 /** The owner's own vocabulary — the stored value is 'card' because the same terminal takes
  * Mastercard and Meeza, but a customer reads "Visa / Card" on their receipt. */
-const PAYMENT_LABELS: Record<'cash' | 'instapay' | 'card', string> = {
+const PAYMENT_LABELS: Record<'cash' | 'instapay' | 'card' | 'vodafone_cash', string> = {
   cash: 'Cash',
   instapay: 'InstaPay',
   card: 'Visa / Card',
+  vodafone_cash: 'Vodafone Cash',
 };
 
 export interface InvoiceDocProps {
@@ -191,7 +192,7 @@ export interface InvoiceDocProps {
     total: number;
     /** One line per method when the bill was split. Empty on sales recorded without a
      * method — the invoice then simply omits the line rather than printing a guess. */
-    payments: { method: 'cash' | 'instapay' | 'card'; amount: number }[];
+    payments: { method: 'cash' | 'instapay' | 'card' | 'vodafone_cash'; amount: number }[];
     items: { productName: string; quantity: number; unitPrice: number }[];
     /** Absent for sales predating client tracking, or where the client was since deleted. */
     client?: {

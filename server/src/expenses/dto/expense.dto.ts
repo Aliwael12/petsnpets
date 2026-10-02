@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paymentMethodEnum } from '../../db/schema/enums';
 import { queryBooleanSchema } from '../../common/dto/query-boolean';
 
 /**
@@ -24,7 +25,7 @@ export const EXPENSE_CATEGORIES = [
 ] as const;
 
 export const expenseCategorySchema = z.enum(EXPENSE_CATEGORIES);
-export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
+export const paymentMethodSchema = z.enum(paymentMethodEnum.enumValues);
 
 /** YYYY-MM-DD, a Cairo calendar day — see expenses.paidOn for why this is a date, not an instant. */
 const paidOnSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date.');

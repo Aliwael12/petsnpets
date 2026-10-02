@@ -52,3 +52,19 @@ export const financialSummaryQuerySchema = z
   })
   .refine(isOrderedRange, ORDERED_RANGE_ISSUE);
 export type FinancialSummaryQueryDto = z.infer<typeof financialSummaryQuerySchema>;
+
+const bucketAmount = z.number().int().min(0, 'An amount can\u2019t be negative.');
+
+/** A month's income split as the admin wants it shown. Must add up to the month's income. */
+export const reallocateIncomeSchema = z.object({
+  year: z.number().int().min(2000).max(2100),
+  month: z.number().int().min(1).max(12),
+  byMethod: z.object({
+    cash: bucketAmount,
+    instapay: bucketAmount,
+    card: bucketAmount,
+    vodafone_cash: bucketAmount,
+    unrecorded: bucketAmount,
+  }),
+});
+export type ReallocateIncomeDto = z.infer<typeof reallocateIncomeSchema>;

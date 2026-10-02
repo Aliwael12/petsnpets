@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paymentMethodEnum } from '../../db/schema/enums';
 import { dateRangeShape, isOrderedRange, ORDERED_RANGE_ISSUE } from '../../common/dto/date-range.dto';
 
 export const refundLineSchema = z.object({
@@ -6,7 +7,7 @@ export const refundLineSchema = z.object({
   quantity: z.number().int().positive(),
 });
 
-export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
+export const paymentMethodSchema = z.enum(paymentMethodEnum.enumValues);
 
 export const createRefundSchema = z.object({
   transactionId: z.uuid(),

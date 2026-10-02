@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq, ilike, inArray, or } from 'drizzle-orm';
+import { eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
 import { clientPhones, clients, pets } from '../db/schema';
@@ -22,12 +22,27 @@ export class ClientsService {
     // could even start comparing. The phone-side match runs as its own small scan over
     // client_phones (far smaller than joining it onto every client) so the name/phone OR
     // below only needs a plain id list, no join or subquery.
+    //
+    // One box, three kinds of query: "#123" is a client ID only; all digits (spaces, dashes,
+    // + and brackets allowed) is a client ID or a phone, compared digits-only so "0100 123"
+    // finds 01001234567 however it was typed in; anything else is a name.
     let where;
-    if (query.search) {
-      const like = `%${query.search}%`;
-      const phoneMatches = await this.db.selectDistinct({ clientId: clientPhones.clientId }).from(clientPhones).where(ilike(clientPhones.phone, like));
-      const matchingClientIds = phoneMatches.map((p) => p.clientId);
-      where = or(ilike(clients.name, like), matchingClientIds.length > 0 ? inArray(clients.id, matchingClientIds) : undefined);
+    const q = query.search?.trim();
+    if (q) {
+      const digits = q.replace(/\D/g, '');
+      const idOnly = /^#\s*\d+$/.test(q);
+      const phoneLike = !idOnly && /^[\d\s+()-]+$/.test(q) && digits.length > 0;
+      const conditions: SQL[] = [];
+      if (!idOnly && !phoneLike) conditions.push(ilike(clients.name, `%${q}%`));
+      if ((idOnly || phoneLike) && digits.length <= 9) conditions.push(eq(clients.legacyId, Number(digits)));
+      if (phoneLike) {
+        const phoneMatches = await this.db
+          .selectDistinct({ clientId: clientPhones.clientId })
+          .from(clientPhones)
+          .where(sql`regexp_replace(${clientPhones.phone}, '[^0-9]', '', 'g') like ${`%${digits}%`}`);
+        if (phoneMatches.length > 0) conditions.push(inArray(clients.id, phoneMatches.map((p) => p.clientId)));
+      }
+      where = or(...conditions);
     }
 
     return this.db.query.clients.findMany({

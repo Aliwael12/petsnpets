@@ -2,7 +2,7 @@ import { Plus, X } from 'lucide-react';
 import { Input, Select } from './ui';
 import { PAYMENT_METHOD_LABELS, type PaymentLine, type PaymentMethod } from '../types';
 
-const PAYMENT_OPTIONS: PaymentMethod[] = ['cash', 'instapay', 'card'];
+const PAYMENT_OPTIONS: PaymentMethod[] = ['cash', 'instapay', 'card', 'vodafone_cash'];
 
 /**
  * What the cashier has entered so far: one method for the whole bill (or none — optional,
@@ -72,7 +72,7 @@ export function PaymentsEditor({
     return (
       <div className="mt-3">
         <p className="mb-1.5 text-xs font-medium text-slate-500">{label}</p>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5">
           {PAYMENT_OPTIONS.map((method) => (
             <button
               key={method}
@@ -135,7 +135,7 @@ export function PaymentsEditor({
             <Select
               value={line.method}
               onChange={(e) => setLine(i, { method: e.target.value as PaymentMethod })}
-              className="w-32! shrink-0"
+              className="w-40! shrink-0"
               aria-label={`Payment method ${i + 1}`}
             >
               {PAYMENT_OPTIONS.filter((m) => m === line.method || !lines.some((l) => l.method === m)).map((m) => (

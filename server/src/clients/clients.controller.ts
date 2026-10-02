@@ -18,9 +18,9 @@ import {
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
 
-  // Every role — cashiers included — can find, open and create clients: checkout links each
-  // sale to one, and any employee may need to pull up a client's page. Editing and deleting
-  // client records stays doctor/nurse only.
+  // Every role — cashiers included — can find, open, create and correct clients: checkout
+  // links each sale to one, and whoever is at the desk is the one who hears that a number
+  // changed. Deleting a client record stays doctor/nurse only.
   @Get()
   @Roles('doctor', 'nurse', 'cashier')
   list(@Query(new ZodValidationPipe(listClientsQuerySchema)) query: ListClientsQueryDto) {
@@ -40,6 +40,7 @@ export class ClientsController {
   }
 
   @Patch(':id')
+  @Roles('doctor', 'nurse', 'cashier')
   update(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(updateClientSchema)) dto: UpdateClientDto, @CurrentActor() actor: Actor) {
     return this.clients.update(id, dto, actor);
   }

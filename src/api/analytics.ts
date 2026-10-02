@@ -1,10 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type {
   BestSeller,
   DayRange,
   EmployeeSummary,
   FinancialSummary,
+  FinancialWindow,
+  MethodBreakdown,
   RevenueByCategory,
   RevenueByEmployee,
   RevenueSplit,
@@ -75,6 +77,16 @@ export function useFinancialSummary(range: DayRange, supplierId?: string) {
   return useQuery({
     queryKey: ['analytics', 'financial-summary', range.from, range.to, supplierId ?? null],
     queryFn: () => api.get<FinancialSummary>(`/analytics/financial-summary${rangeQs(range, supplierId ? { supplierId } : {})}`),
+  });
+}
+
+/** Admin only: re-split one month's income across payment methods, same total. */
+export function useReallocateIncome() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { year: number; month: number; byMethod: MethodBreakdown }) =>
+      api.put<FinancialWindow>('/analytics/income-reallocation', input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['analytics'] }),
   });
 }
 

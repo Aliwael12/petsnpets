@@ -263,6 +263,7 @@ export function Expenses() {
                   <option value="cash">Cash</option>
                   <option value="instapay">InstaPay</option>
                   <option value="card">Visa / Card</option>
+                  <option value="vodafone_cash">Vodafone Cash</option>
                 </Select>
               </div>
             </div>
@@ -366,6 +367,7 @@ export function Expenses() {
                   <option value="cash">Cash</option>
                   <option value="instapay">InstaPay</option>
                   <option value="card">Visa / Card</option>
+                  <option value="vodafone_cash">Vodafone Cash</option>
                 </Select>
               </div>
               <div>

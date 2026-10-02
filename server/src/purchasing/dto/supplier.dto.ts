@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { paymentMethodEnum } from '../../db/schema/enums';
 import { dateRangeShape, isOrderedRange, ORDERED_RANGE_ISSUE } from '../../common/dto/date-range.dto';
 
-export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
+export const paymentMethodSchema = z.enum(paymentMethodEnum.enumValues);
 
 export const createSupplierSchema = z.object({
   name: z.string().trim().min(1).max(200),

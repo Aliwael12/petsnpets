@@ -20,7 +20,7 @@ export class RemindersService {
       where: query.includeCompleted ? undefined : isNull(reminders.completedAt),
       orderBy: [asc(reminders.dueAt)],
       with: {
-        client: { columns: { id: true, name: true } },
+        client: { columns: { id: true, name: true, legacyId: true }, with: { phones: { columns: { phone: true } } } },
         pet: { columns: { id: true, name: true } },
         createdByEmployee: { columns: { id: true, name: true } },
       },

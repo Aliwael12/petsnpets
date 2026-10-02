@@ -5,6 +5,7 @@ import {
   and,
   asc,
   count,
+  eq,
   gte,
   inArray,
   lte,
@@ -20,6 +21,7 @@ import {
   clients,
   discounts,
   employees,
+  incomeReallocations,
   expenses,
   petLogs,
   pets,
@@ -29,6 +31,7 @@ import {
   supplierOrders,
   supplierPayments,
   transactions,
+  type PaymentMethod,
 } from '../db/schema';
 import { AppError } from '../common/errors/app-error';
 import {
@@ -42,12 +45,13 @@ import { PurchasingService } from '../purchasing/purchasing.service';
 import type { Actor } from '../auth/auth.types';
 import type { MonthlyReportData, ReportTable } from './monthly-report-document';
 
-type Method = 'cash' | 'instapay' | 'card';
-const METHODS: Method[] = ['cash', 'instapay', 'card'];
+type Method = PaymentMethod;
+const METHODS: Method[] = ['cash', 'instapay', 'card', 'vodafone_cash'];
 const METHOD_LABELS: Record<Method, string> = {
   cash: 'Cash',
   instapay: 'InstaPay',
   card: 'Visa / Card',
+  vodafone_cash: 'Vodafone Cash',
 };
 const methodLabel = (m: Method | null | undefined) =>
   m ? METHOD_LABELS[m] : 'Not recorded';
@@ -85,6 +89,7 @@ const OTHER_ACTIVITY_LABELS: Record<string, string> = {
   'category.update': 'Edited category',
   'category.delete': 'Removed category',
   'sale.update': 'Edited sale',
+  'income.reallocate': 'Reallocated income between methods',
   'client.update': 'Edited client',
   'client.delete': 'Deleted client',
   'boarding.update': 'Updated boarding stay',
@@ -369,14 +374,25 @@ export class ReportsService {
 
     const fmt = this.formatters();
 
+    // The admin's reallocation for this month, if any: its own column, so the PDF shows both
+    // what the payments said and how the split was corrected (the shifts sum to zero).
+    const [reallocation] = await this.db
+      .select()
+      .from(incomeReallocations)
+      .where(and(eq(incomeReallocations.year, year), eq(incomeReallocations.month, monthNo)));
+    const shift = (m: Method | null) => reallocation?.deltas[m ?? 'unrecorded'] ?? 0;
+    const reallocated = [...METHODS, null].some((m) => shift(m) !== 0);
+    const signed = (piastres: number) => (piastres > 0 ? `+${egp(piastres)}` : piastres < 0 ? egp(piastres) : '—');
+
     const breakdown: ReportTable = {
       title: 'Money in / out by payment method',
       hideCount: true,
-      note: 'Net income is sales minus refunds. Stock is the cost of shipments received this month; supplier payments are what was actually paid toward supplier balances.',
+      note: `Net income is sales minus refunds${reallocated ? ', plus the admin\u2019s reallocation between methods (which never changes the total)' : ''}. Stock is the cost of shipments received this month; supplier payments are what was actually paid toward supplier balances.`,
       columns: [
         { label: 'Method', flex: 2 },
         { label: 'Sales', flex: 1.5, align: 'right' },
         { label: 'Refunds', flex: 1.5, align: 'right' },
+        ...(reallocated ? [{ label: 'Reallocated', flex: 1.5, align: 'right' as const }] : []),
         { label: 'Net income', flex: 1.5, align: 'right' },
         { label: 'Stock (shipments)', flex: 1.5, align: 'right' },
         { label: 'Running costs', flex: 1.5, align: 'right' },
@@ -387,7 +403,8 @@ export class ReportsService {
           methodLabel(m),
           egp(byMethod(saleM, m)),
           egp(byMethod(refundM, m)),
-          egp(byMethod(saleM, m) - byMethod(refundM, m)),
+          ...(reallocated ? [signed(shift(m))] : []),
+          egp(byMethod(saleM, m) - byMethod(refundM, m) + shift(m)),
           egp(byMethod(orderM, m)),
           egp(byMethod(expenseM, m)),
           egp(byMethod(paymentM, m)),
@@ -397,6 +414,7 @@ export class ReportsService {
         'Total',
         egp(salesGross),
         egp(refundsTotal),
+        ...(reallocated ? ['—'] : []),
         egp(income),
         egp(stockCost),
         egp(operating),
@@ -742,6 +760,7 @@ export class ReportsService {
             (after?.description as string | undefined) ??
             (before?.description as string | undefined) ??
             (after?.invoice as string | undefined) ??
+            (a.action === 'income.reallocate' ? (after?.month as string | undefined) : undefined) ??
             (petId ? petName.get(petId) : undefined) ??
             (a.entityType === 'employee' && a.entityId
               ? staffName.get(a.entityId)
@@ -940,6 +959,11 @@ function showValue(
       : 'Not recorded';
   if (value === null || value === undefined || value === '') return '—';
   if (key === 'occurredAt' && typeof value === 'string') return time(value);
+  if (key === 'byMethod' && value && typeof value === 'object')
+    return Object.entries(value as Record<string, number>)
+      .filter(([, amount]) => amount !== 0)
+      .map(([m, amount]) => `${methodLabel(m === 'unrecorded' ? null : (m as Method))} ${egp(amount)}`)
+      .join(', ') || '—';
   if (MONEY_FIELDS.has(key) && typeof value === 'number') return egp(value);
   if (Array.isArray(value))
     return value.length

@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { Search, UserRound } from 'lucide-react';
 import { useClients } from '../api/clients';
 import { Input } from './ui';
+import { isExactIdQuery, matchesPersonQuery } from '../lib/search';
 
-/** Search-and-pick a client by name or phone. Renders the chosen client as a card with a
+/** Search-and-pick a client by name, phone or client ID. Renders the chosen client as a card with a
  *  "Change" link once one is picked. */
 export function ClientPicker({
   value,
@@ -19,10 +20,10 @@ export function ClientPicker({
 
   const selected = clients.find((c) => c.id === value) ?? null;
   const matches = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return [];
+    if (!search.trim()) return [];
     return clients
-      .filter((c) => c.name.toLowerCase().includes(q) || c.phones.some((p) => p.phone.toLowerCase().includes(q)))
+      .filter((c) => matchesPersonQuery(search, { names: [c.name], phones: c.phones.map((p) => p.phone), legacyId: c.legacyId }))
+      .sort((a, b) => Number(isExactIdQuery(search, b.legacyId)) - Number(isExactIdQuery(search, a.legacyId)))
       .slice(0, 6);
   }, [clients, search]);
 
@@ -50,7 +51,7 @@ export function ClientPicker({
       <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
       <Input
         autoFocus={autoFocus}
-        placeholder="Search customer by name or phone"
+        placeholder="Search customer by name, phone or ID"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="pl-8"
@@ -70,7 +71,9 @@ export function ClientPicker({
                 className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-slate-50"
               >
                 <span className="font-medium text-navy-950">{c.name}</span>
-                <span className="text-xs text-slate-400">{c.phones[0]?.phone}</span>
+                <span className="text-xs text-slate-400">
+                  {[c.legacyId != null ? `#${c.legacyId}` : null, c.phones[0]?.phone].filter(Boolean).join(' · ')}
+                </span>
               </button>
             ))
           )}

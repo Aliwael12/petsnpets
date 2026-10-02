@@ -29,7 +29,14 @@ export class PetLogsService {
     return this.db.query.petLogs.findMany({
       where: isNotNull(petLogs.nextDueDate),
       orderBy: (l, { asc }) => [asc(l.nextDueDate)],
-      with: { pet: { with: { client: { columns: { id: true, name: true } } } } },
+      with: {
+        pet: {
+          with: {
+            phones: { columns: { phone: true } },
+            client: { columns: { id: true, name: true, legacyId: true }, with: { phones: { columns: { phone: true } } } },
+          },
+        },
+      },
     });
   }
 

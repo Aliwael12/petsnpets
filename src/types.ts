@@ -142,7 +142,7 @@ export interface Reminder {
   createdBy: string;
   createdAt: string;
   completedAt?: string | null;
-  client?: { id: string; name: string };
+  client?: { id: string; name: string; legacyId?: number | null; phones?: { phone: string }[] };
   pet?: { id: string; name: string } | null;
   createdByEmployee?: { id: string; name: string };
 }
@@ -182,7 +182,7 @@ export interface Appointment {
   clientId?: string | null;
   handledBy?: string | null;
   createdAt: string;
-  client?: { id: string; name: string } | null;
+  client?: { id: string; name: string; legacyId?: number | null; phones?: { phone: string }[] } | null;
   handledByEmployee?: { id: string; name: string } | null;
 }
 
@@ -213,7 +213,7 @@ export interface Supplier {
 
 /** How money moved. `null` on a row means "not recorded" — written before payment
  * tracking existed — and is deliberately not folded into 'cash'. */
-export type PaymentMethod = 'cash' | 'instapay' | 'card';
+export type PaymentMethod = 'cash' | 'instapay' | 'card' | 'vodafone_cash';
 export type PaymentBucket = PaymentMethod | 'unrecorded';
 
 /** One method's share of a sale, in piastres. A sale's lines always add up to its total,
@@ -229,6 +229,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentBucket, string> = {
   // The owner says "Visa"; the terminal also takes Mastercard and Meeza, so the stored
   // value is 'card' and only the label carries the shorthand.
   card: 'Visa / Card',
+  vodafone_cash: 'Vodafone Cash',
   unrecorded: 'Not recorded',
 };
 
@@ -455,7 +456,14 @@ export interface FinancialWindow {
   month?: number;
   from?: string | null;
   to?: string | null;
-  income: { gross: number; refunds: number; net: number; byMethod: MethodBreakdown };
+  income: {
+    gross: number;
+    refunds: number;
+    net: number;
+    byMethod: MethodBreakdown;
+    /** The admin's reallocation already included in byMethod (sums to zero), or null. */
+    reallocated?: MethodBreakdown | null;
+  };
   expenses: { stock: number; operating: number; total: number; byMethod: MethodBreakdown };
   net: number;
 }

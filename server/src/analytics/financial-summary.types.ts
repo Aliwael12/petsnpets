@@ -24,6 +24,9 @@ export interface FinancialWindow {
     /** Per method, already net of refunds paid back by that method, so the values sum
      * exactly to `net`. */
     byMethod: MethodBreakdown;
+    /** The admin's reallocation shifts already included in `byMethod` (they sum to zero),
+     *  or null when the split is exactly as the payments were recorded. */
+    reallocated: MethodBreakdown | null;
   };
   expenses: {
     /** Supplier shipments — stock bought for resale. */

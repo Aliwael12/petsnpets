@@ -11,6 +11,7 @@ import { useEmployees } from '../api/employees';
 import { useActiveEmployees } from '../api/auth';
 import { useAuthStore } from '../store/useAuthStore';
 import { canManageEmployees } from '../lib/permissions';
+import { isExactIdQuery } from '../lib/search';
 import { buildActivity } from '../lib/activity';
 import { ActivityFeed } from '../components/ActivityFeed';
 import { Button, Card, CardHeader, EmptyState, Input, Modal, PhoneListInput, Select } from '../components/ui';
@@ -33,17 +34,23 @@ export function Clients() {
   const [search, setSearch] = useState('');
   const { data: unsortedClients = [] } = useClients(search);
   // By client number here; the API's alphabetical order is kept for the pickers elsewhere.
+  // A search for an exact client ID ("123" or "#123") puts that client first, ahead of the
+  // clients whose phone numbers merely contain those digits.
   const clients = useMemo(
     () =>
       [...unsortedClients].sort(
-        (a, b) => (a.legacyId ?? Number.MAX_SAFE_INTEGER) - (b.legacyId ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name),
+        (a, b) =>
+          Number(isExactIdQuery(search, b.legacyId)) - Number(isExactIdQuery(search, a.legacyId)) ||
+          (a.legacyId ?? Number.MAX_SAFE_INTEGER) - (b.legacyId ?? Number.MAX_SAFE_INTEGER) ||
+          a.name.localeCompare(b.name),
       ),
-    [unsortedClients],
+    [unsortedClients, search],
   );
   const me = useAuthStore((s) => s.employee);
-  // Editing or deleting a client is doctor/nurse territory on the server; cashiers get
-  // those two buttons hidden rather than buttons that can only fail.
-  const canEditClients = me?.role !== 'cashier';
+  // Every employee can correct a client's name and phones; deleting a client stays
+  // doctor/nurse territory on the server, so cashiers get that button hidden rather than one
+  // that can only fail.
+  const canDeleteClients = me?.role !== 'cashier';
   // The full staff list (former employees included) is behind "manage employees"; everyone
   // else names the history from the active roster the sign-in screen already uses.
   const canListAllStaff = canManageEmployees(me);
@@ -191,7 +198,7 @@ export function Clients() {
           <div className="border-b border-slate-100 px-4 py-3">
             <div className="relative">
               <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <Input placeholder="Search name or phone" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 text-sm" />
+              <Input placeholder="Search name, phone or ID" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 text-sm" />
             </div>
           </div>
           <div className="max-h-[560px] divide-y divide-slate-100 overflow-y-auto">
@@ -244,16 +251,16 @@ export function Clients() {
                     .filter(Boolean)
                     .join(' · ')}
                   action={
-                    canEditClients && (
-                      <div className="flex gap-2">
-                        <Button variant="ghost" onClick={() => openEdit(selectedClient)}>
-                          <Pencil size={14} /> Edit
-                        </Button>
+                    <div className="flex gap-2">
+                      <Button variant="ghost" onClick={() => openEdit(selectedClient)}>
+                        <Pencil size={14} /> Edit
+                      </Button>
+                      {canDeleteClients && (
                         <Button variant="danger" onClick={() => setDeleteTarget(selectedClient)}>
                           <Trash2 size={14} /> Delete
                         </Button>
-                      </div>
-                    )
+                      )}
+                    </div>
                   }
                 />
                 <div className="px-5 py-4">

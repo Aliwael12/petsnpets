@@ -1,7 +1,8 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Put, Query } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { Permissions } from '../auth/permissions.decorator';
+import { Roles } from '../auth/roles.decorator';
 import { CurrentActor } from '../auth/actor.decorator';
 import { hasPermission } from '../employees/permissions';
 import { ForbiddenAppError } from '../common/errors/app-error';
@@ -11,10 +12,12 @@ import {
   employeeSummaryQuerySchema,
   financialSummaryQuerySchema,
   rangeOnlyQuerySchema,
+  reallocateIncomeSchema,
   revenueSplitQuerySchema,
   timeseriesQuerySchema,
   type EmployeeSummaryQueryDto,
   type FinancialSummaryQueryDto,
+  type ReallocateIncomeDto,
   type RangeOnlyQueryDto,
   type RevenueSplitQueryDto,
   type TimeseriesQueryDto,
@@ -84,6 +87,14 @@ export class AnalyticsController {
   @Permissions('financials:read')
   financialSummary(@Query(new ZodValidationPipe(financialSummaryQuerySchema)) query: FinancialSummaryQueryDto) {
     return this.analytics.financialSummary(query);
+  }
+
+  /** Moves a month's income between payment methods without changing its total. Kept with
+   *  the owner, not delegable: it rewrites what the books say about how money came in. */
+  @Put('income-reallocation')
+  @Roles('admin')
+  reallocateIncome(@Body(new ZodValidationPipe(reallocateIncomeSchema)) dto: ReallocateIncomeDto, @CurrentActor() actor: Actor) {
+    return this.analytics.reallocateIncome(dto.year, dto.month, dto.byMethod, actor);
   }
 
   @Get('employee-summary')

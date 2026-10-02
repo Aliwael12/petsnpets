@@ -3,13 +3,34 @@ import { ConfigService } from '@nestjs/config';
 import { and, eq, sql as rawSql, type SQL, type SQLWrapper } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
-import { discounts, petLogs, refunds, supplierOrders, transactions } from '../db/schema';
+import { discounts, incomeReallocations, petLogs, refunds, supplierOrders, transactions } from '../db/schema';
+import { ValidationAppError } from '../common/errors/app-error';
+import { AuditService } from '../common/audit/audit.service';
+import type { Actor } from '../auth/auth.types';
 import { andClause, dateInRange, monthDayBounds, tsInRange, type DayRange } from '../common/date-range';
 import type { ActivityEntry } from './activity.types';
 import type { FinancialSummary, FinancialWindow, MethodBreakdown, PaymentBucket } from './financial-summary.types';
 
-const PAYMENT_BUCKETS: PaymentBucket[] = ['cash', 'instapay', 'card', 'unrecorded'];
-const emptyBreakdown = (): MethodBreakdown => ({ cash: 0, instapay: 0, card: 0, unrecorded: 0 });
+const PAYMENT_BUCKETS: PaymentBucket[] = ['cash', 'instapay', 'card', 'vodafone_cash', 'unrecorded'];
+const emptyBreakdown = (): MethodBreakdown => ({ cash: 0, instapay: 0, card: 0, vodafone_cash: 0, unrecorded: 0 });
+
+const egp = (piastres: number) => `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+
+/** Adds the reallocation shifts to a window's income split (they sum to zero, so the total
+ *  is untouched) and records what was applied, so the UI can say the split was adjusted. */
+function applyReallocations(window: FinancialWindow, rows: { deltas: Record<string, number> }[]) {
+  const applied = emptyBreakdown();
+  let any = false;
+  for (const row of rows) {
+    for (const b of PAYMENT_BUCKETS) {
+      const shift = row.deltas[b] ?? 0;
+      if (shift !== 0) any = true;
+      applied[b] += shift;
+      window.income.byMethod[b] += shift;
+    }
+  }
+  window.income.reallocated = any ? applied : null;
+}
 
 /** Money sums are cast to ::bigint in SQL, not ::int, because int4 tops out at
  * 21,474,836.47 EGP — a ceiling a clinic's all-time revenue genuinely reaches, and
@@ -30,6 +51,7 @@ export class AnalyticsService {
   constructor(
     @Inject(DB) private readonly db: Database,
     config: ConfigService,
+    private readonly audit: AuditService,
   ) {
     this.tz = config.getOrThrow<string>('TIMEZONE');
   }
@@ -441,11 +463,73 @@ export class AnalyticsService {
 
     // `range` and `month` duplicate work when no range is supplied. Deliberate: one code
     // path, no conditional SQL, and these are index-range scans over a clinic-sized table.
-    return {
+    const summary: FinancialSummary = {
       range: { from: range.from, to: range.to, ...this.foldWindow(rows, 'range') },
       month: { year: resolvedYear, month: resolvedMonth, ...this.foldWindow(rows, 'month') },
       allTime: this.foldWindow(rows, 'all'),
     };
+
+    // The admin's method reallocations (see income_reallocations): each belongs to a whole
+    // month, so it applies to that month, to all time, and to a range only when the range
+    // covers the entire month. A partial range (e.g. "today") can't say which days the
+    // shifted money came from, so it shows the raw split.
+    const reallocations = await this.db.select().from(incomeReallocations);
+    const covers = (y: number, m: number) => {
+      const first = `${y}-${String(m).padStart(2, '0')}-01`;
+      const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+      return (range.from === null || range.from <= first) && (range.to === null || range.to >= last);
+    };
+    applyReallocations(summary.month, reallocations.filter((r) => r.year === resolvedYear && r.month === resolvedMonth));
+    applyReallocations(summary.allTime, reallocations);
+    applyReallocations(summary.range, reallocations.filter((r) => covers(r.year, r.month)));
+    return summary;
+  }
+
+  /**
+   * Sets how one month's income splits across methods, keeping the month's total exactly as
+   * it is: `byMethod` is the split the admin wants to see, and what's stored is its
+   * difference from the real payments. Admin only (see the controller).
+   */
+  async reallocateIncome(year: number, month: number, target: MethodBreakdown, actor: Actor): Promise<FinancialWindow> {
+    const { month: current } = await this.financialSummary({ year, month });
+    const applied = current.income.reallocated ?? emptyBreakdown();
+    const wanted = PAYMENT_BUCKETS.reduce((sum, b) => sum + target[b], 0);
+    if (wanted !== current.income.net) {
+      throw new ValidationAppError(
+        `The methods add up to ${egp(wanted)}, but this month's income is ${egp(current.income.net)}. Only the split can change, not the total.`,
+        { wanted, net: current.income.net },
+      );
+    }
+
+    // shift = wanted - raw, where raw = what's shown now minus the shift already applied.
+    const deltas: Record<string, number> = {};
+    for (const b of PAYMENT_BUCKETS) {
+      const shift = target[b] - (current.income.byMethod[b] - applied[b]);
+      if (shift !== 0) deltas[b] = shift;
+    }
+
+    await this.db.transaction(async (tx) => {
+      if (Object.keys(deltas).length === 0) {
+        await tx.delete(incomeReallocations).where(and(eq(incomeReallocations.year, year), eq(incomeReallocations.month, month)));
+      } else {
+        await tx
+          .insert(incomeReallocations)
+          .values({ year, month, deltas, updatedBy: actor.id })
+          .onConflictDoUpdate({
+            target: [incomeReallocations.year, incomeReallocations.month],
+            set: { deltas, updatedBy: actor.id, updatedAt: new Date() },
+          });
+      }
+      await this.audit.log(tx, {
+        actorId: actor.id,
+        action: 'income.reallocate',
+        entityType: 'income_month',
+        before: { month: `${year}-${String(month).padStart(2, '0')}`, byMethod: current.income.byMethod },
+        after: { month: `${year}-${String(month).padStart(2, '0')}`, byMethod: target },
+      });
+    });
+
+    return (await this.financialSummary({ year, month })).month;
   }
 
   private foldWindow(
@@ -493,7 +577,7 @@ export class AnalyticsService {
     const netIncome = gross - refunded;
     const totalExpenses = stock + operating;
     return {
-      income: { gross, refunds: refunded, net: netIncome, byMethod: incomeByMethod },
+      income: { gross, refunds: refunded, net: netIncome, byMethod: incomeByMethod, reallocated: null },
       expenses: { stock, operating, total: totalExpenses, byMethod: expensesByMethod },
       net: netIncome - totalExpenses,
     };

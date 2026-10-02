@@ -142,7 +142,7 @@ export class AppointmentsService {
       where: conditions.length > 0 ? and(...conditions) : undefined,
       orderBy: [asc(appointments.requestedAt)],
       with: {
-        client: { columns: { id: true, name: true } },
+        client: { columns: { id: true, name: true, legacyId: true }, with: { phones: { columns: { phone: true } } } },
         handledByEmployee: { columns: { id: true, name: true } },
       },
     });

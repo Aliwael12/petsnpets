@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paymentMethodEnum } from '../../db/schema/enums';
 import { dateRangeShape, isOrderedRange, ORDERED_RANGE_ISSUE } from '../../common/dto/date-range.dto';
 
 export const saleLineSchema = z.object({
@@ -8,7 +9,7 @@ export const saleLineSchema = z.object({
   // client. See ProductsService / SalesService.
 });
 
-export const paymentMethodSchema = z.enum(['cash', 'instapay', 'card']);
+export const paymentMethodSchema = z.enum(paymentMethodEnum.enumValues);
 
 /** One method's share of a bill, in piastres. */
 export const paymentLineSchema = z.object({

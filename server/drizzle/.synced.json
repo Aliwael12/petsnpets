@@ -12,5 +12,7 @@
   "0010_modern_gauntlet.sql",
   "0011_add_reminders.sql",
   "0012_add_boardings.sql",
-  "0013_quick_boomer.sql"
+  "0013_quick_boomer.sql",
+  "0014_sudden_redwing.sql",
+  "0015_robust_talisman.sql"
 ]

@@ -124,10 +124,11 @@ export function createRefundDocument(reactPdf: typeof ReactPdf) {
 }
 
 /** The owner's own vocabulary — see the same map in invoice-document.tsx. */
-const PAYMENT_LABELS: Record<'cash' | 'instapay' | 'card', string> = {
+const PAYMENT_LABELS: Record<'cash' | 'instapay' | 'card' | 'vodafone_cash', string> = {
   cash: 'Cash',
   instapay: 'InstaPay',
   card: 'Visa / Card',
+  vodafone_cash: 'Vodafone Cash',
 };
 
 export interface RefundDocProps {
@@ -140,7 +141,7 @@ export interface RefundDocProps {
     reason?: string | null;
     /** How the money went back to the customer. Absent on refunds recorded before payment
      * tracking existed — the credit note then omits the line rather than printing a guess. */
-    paymentMethod?: 'cash' | 'instapay' | 'card' | null;
+    paymentMethod?: 'cash' | 'instapay' | 'card' | 'vodafone_cash' | null;
     items: { productName: string; quantity: number; unitPrice: number }[];
   };
   refundedByName: string;

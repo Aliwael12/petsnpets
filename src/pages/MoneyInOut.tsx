@@ -711,6 +711,7 @@ export function MoneyInOut() {
                 <option value="cash">Cash</option>
                 <option value="instapay">InstaPay</option>
                 <option value="card">Visa / Card</option>
+                <option value="vodafone_cash">Vodafone Cash</option>
               </Select>
               <p className="mt-1 text-xs text-slate-400">
                 Optional here, unlike at the till — shipments are often paid later or on account, and guessing would make
@@ -782,6 +783,7 @@ export function MoneyInOut() {
                 <option value="cash">Cash</option>
                 <option value="instapay">InstaPay</option>
                 <option value="card">Visa / Card</option>
+                <option value="vodafone_cash">Vodafone Cash</option>
               </Select>
               <p className="mt-1 text-xs text-slate-400">Just for your own record — this doesn't feed the Expenses breakdown.</p>
             </div>

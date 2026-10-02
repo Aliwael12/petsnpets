@@ -6,10 +6,11 @@ import { useAppointments, useUpdateAppointmentStatus } from '../api/appointments
 import { useCompleteReminder, useReminders } from '../api/reminders';
 import { ApiError } from '../api/client';
 import { businessDayKey, formatSlotTime } from '../lib/timezone';
-import { Badge, Button, Card, CardHeader, EmptyState, Modal, StatTile, formatDate } from '../components/ui';
+import { matchesPersonQuery, type PersonFields } from '../lib/search';
+import { Badge, Button, Card, CardHeader, EmptyState, Input, Modal, StatTile, formatDate } from '../components/ui';
 import { AddReminderModal } from '../components/AddReminderModal';
 import type { Appointment, Pet, PetLog, Reminder } from '../types';
-import { BellPlus, CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Globe, Phone, X } from 'lucide-react';
+import { Bell, BellPlus, CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Globe, Phone, Search, X } from 'lucide-react';
 
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH_NAMES = [
@@ -61,6 +62,34 @@ type CalEvent =
   | { kind: 'task'; id: string; dateKey: string; label: string; sub: string; overdue: boolean; reminder: Reminder }
   | { kind: 'appointment'; id: string; dateKey: string; label: string; sub: string; status: Appointment['status'] };
 
+/** One row of the search results: a booking or a reminder, with who it's for. */
+interface SearchHit {
+  key: string;
+  kind: 'booking' | 'reminder';
+  dateKey: string;
+  when: string;
+  title: string;
+  owner: string;
+  phone?: string;
+  legacyId?: number | null;
+  detail: string;
+  status?: Appointment['status'];
+  overdue?: boolean;
+  /** A pet-log follow-up opens that pet's log; an added reminder opens its own card. */
+  href?: string;
+  reminder?: Reminder;
+}
+
+const BOOKING_STATUS_TONE: Record<Appointment['status'], string> = {
+  pending: 'sale',
+  confirmed: 'active',
+  completed: 'inactive',
+  cancelled: 'low',
+};
+
+/** A plain date key read back in the clinic's timezone, with the year: "2 Oct 2026". */
+const formatDayKeyLong = (dayKey: string) => formatDate(`${dayKey}T12:00:00Z`);
+
 export function Calendar() {
   const { data: upcomingRaw = [] } = useUpcomingPetLogs();
   const { data: appointments = [] } = useAppointments();
@@ -70,6 +99,8 @@ export function Calendar() {
 
   const [addReminderOpen, setAddReminderOpen] = useState(false);
   const [viewing, setViewing] = useState<Reminder | null>(null);
+  const [search, setSearch] = useState('');
+  const query = search.trim();
 
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
@@ -92,6 +123,13 @@ export function Calendar() {
           href: `/pet-logs?pet=${l.pet.id}`,
           overdue: businessDayKey(l.nextDueDate) < todayKey,
           ownerName: l.pet.client?.name ?? 'Unknown',
+          phone: l.pet.client?.phones?.[0]?.phone ?? l.pet.phones?.[0]?.phone,
+          legacyId: l.pet.client?.legacyId ?? null,
+          person: {
+            names: [l.pet.name, l.pet.client?.name],
+            phones: [...(l.pet.client?.phones ?? []).map((p) => p.phone), ...(l.pet.phones ?? []).map((p) => p.phone)],
+            legacyId: l.pet.client?.legacyId,
+          } satisfies PersonFields,
         })),
     [upcomingRaw, todayKey],
   );
@@ -107,6 +145,13 @@ export function Calendar() {
         overdue: businessDayKey(r.dueAt) < todayKey,
         ownerName: r.client?.name ?? 'Unknown',
         reminder: r,
+        phone: r.client?.phones?.[0]?.phone,
+        legacyId: r.client?.legacyId ?? null,
+        person: {
+          names: [r.pet?.name, r.client?.name],
+          phones: (r.client?.phones ?? []).map((p) => p.phone),
+          legacyId: r.client?.legacyId,
+        } satisfies PersonFields,
       })),
     [openReminders, todayKey],
   );
@@ -125,9 +170,71 @@ export function Calendar() {
   // grid — the calendar shows what is actually happening, not what was called off.
   const liveAppointments = useMemo(() => appointments.filter((a) => a.status !== 'cancelled'), [appointments]);
 
+  // Search covers every booking (cancelled ones too, since "did they cancel?" is a real
+  // question) and every open reminder, by pet name, customer name, phone or client ID.
+  const hits = useMemo<SearchHit[]>(() => {
+    if (!query) return [];
+    const list: SearchHit[] = [];
+    for (const r of reminders) {
+      if (!matchesPersonQuery(query, r.person)) continue;
+      list.push({
+        key: `reminder-${r.id}`,
+        kind: 'reminder',
+        dateKey: r.dateKey,
+        when: formatDayKeyLong(r.dateKey),
+        title: r.label,
+        owner: r.ownerName,
+        phone: r.phone,
+        legacyId: r.legacyId,
+        detail: r.sub,
+        overdue: r.overdue,
+        href: r.href,
+      });
+    }
+    for (const t of tasks) {
+      if (!matchesPersonQuery(query, t.person)) continue;
+      list.push({
+        key: `task-${t.id}`,
+        kind: 'reminder',
+        dateKey: t.dateKey,
+        when: formatDayKeyLong(t.dateKey),
+        title: t.label,
+        owner: t.ownerName,
+        phone: t.phone,
+        legacyId: t.legacyId,
+        detail: t.sub,
+        overdue: t.overdue,
+        reminder: t.reminder,
+      });
+    }
+    for (const a of appointments) {
+      const person: PersonFields = {
+        names: [a.petName, a.ownerName, a.client?.name],
+        phones: [a.phone, ...(a.client?.phones ?? []).map((p) => p.phone)],
+        legacyId: a.client?.legacyId,
+      };
+      if (!matchesPersonQuery(query, person)) continue;
+      list.push({
+        key: `appointment-${a.id}`,
+        kind: 'booking',
+        dateKey: businessDayKey(a.requestedAt),
+        when: `${formatDate(a.requestedAt)} · ${formatSlotTime(a.requestedAt)}`,
+        title: a.petName,
+        owner: a.client?.name ?? a.ownerName,
+        phone: a.phone,
+        legacyId: a.client?.legacyId,
+        detail: a.serviceName,
+        status: a.status,
+      });
+    }
+    return list.sort((x, y) => x.dateKey.localeCompare(y.dateKey));
+  }, [query, reminders, tasks, appointments]);
+  const hitKeys = useMemo(() => new Set(hits.map((h) => h.key)), [hits]);
+
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalEvent[]>();
     const push = (e: CalEvent) => {
+      if (query && !hitKeys.has(`${e.kind}-${e.id}`)) return;
       const list = map.get(e.dateKey) ?? [];
       list.push(e);
       map.set(e.dateKey, list);
@@ -145,7 +252,7 @@ export function Calendar() {
       });
     }
     return map;
-  }, [reminders, tasks, liveAppointments]);
+  }, [reminders, tasks, liveAppointments, query, hitKeys]);
 
   const pending = useMemo(
     () =>
@@ -175,6 +282,12 @@ export function Calendar() {
     );
   };
 
+  /** Shows the month a search result falls in, so it can be seen in context on the grid. */
+  const jumpTo = (key: string) => {
+    const [y, m] = key.split('-').map(Number);
+    setCursor({ year: y, month: m - 1 });
+  };
+
   const goToday = () => {
     const d = new Date();
     setCursor({ year: d.getFullYear(), month: d.getMonth() });
@@ -193,10 +306,95 @@ export function Calendar() {
           <h1 className="text-xl font-semibold text-navy-950">Calendar</h1>
           <p className="text-sm text-slate-500">Website bookings and pet reminders coming due</p>
         </div>
-        <Button onClick={() => setAddReminderOpen(true)}>
-          <BellPlus size={16} /> Add reminder
-        </Button>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
+            <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Input
+              placeholder="Search name, phone or client ID"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 pr-8 text-sm"
+              aria-label="Search bookings and reminders"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600"
+                aria-label="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <Button onClick={() => setAddReminderOpen(true)}>
+            <BellPlus size={16} /> Add reminder
+          </Button>
+        </div>
       </div>
+
+      {query && (
+        <Card>
+          <CardHeader
+            title="Search results"
+            subtitle={`${hits.length} ${hits.length === 1 ? 'match' : 'matches'} for “${query}”. The calendar below shows only these.`}
+          />
+          {hits.length === 0 ? (
+            <EmptyState title="No bookings or reminders match" subtitle="Try a pet name, the customer’s name, a phone number or a client ID like #123" />
+          ) : (
+            <div className="max-h-[360px] divide-y divide-slate-100 overflow-y-auto">
+              {hits.map((h) => {
+                const body = (
+                  <>
+                    <div
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                        h.kind === 'booking' ? 'bg-navy-100 text-navy-800' : h.overdue ? 'bg-red-100 text-red-600' : 'bg-sky-100 text-sky-700'
+                      }`}
+                    >
+                      {h.kind === 'booking' ? <CalendarPlus size={16} /> : <Bell size={16} />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-navy-950">
+                        {h.title} <span className="font-normal text-slate-400">· {h.owner}</span>
+                      </p>
+                      <p className="truncate text-xs text-slate-500">{h.detail}</p>
+                      <p className="truncate text-xs text-slate-400">
+                        {[h.legacyId != null ? `#${h.legacyId}` : null, h.phone].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="text-xs font-medium text-navy-700">{h.when}</span>
+                      {h.kind === 'booking' && h.status ? (
+                        <Badge tone={BOOKING_STATUS_TONE[h.status]}>{h.status}</Badge>
+                      ) : (
+                        <Badge tone={h.overdue ? 'low' : 'vaccination'}>{h.overdue ? 'Overdue' : 'Reminder'}</Badge>
+                      )}
+                    </div>
+                  </>
+                );
+                const rowClass = 'flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-slate-50';
+                return h.href ? (
+                  <Link key={h.key} to={h.href} className={rowClass}>
+                    {body}
+                  </Link>
+                ) : (
+                  <button
+                    key={h.key}
+                    type="button"
+                    className={rowClass}
+                    onClick={() => {
+                      jumpTo(h.dateKey);
+                      if (h.reminder) setViewing(h.reminder);
+                    }}
+                  >
+                    {body}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatTile
