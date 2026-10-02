@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Roles } from '../auth/roles.decorator';
 import { SalesService } from './sales.service';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { IdempotencyKey } from '../common/idempotency/idempotency-key.decorator';
@@ -37,7 +38,8 @@ export class SalesController {
     return this.sales.checkout(idempotencyKey, dto, actor);
   }
 
-  /** Every role, like checkout: whoever rang it up can fix who it was for, when, and how it was paid. */
+  /** Every role, like checkout: whoever rang it up can fix who it was for, when, and how it
+   *  was paid. Changing the discount is admin only (checked in the service). */
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -45,5 +47,13 @@ export class SalesController {
     @CurrentActor() actor: Actor,
   ) {
     return this.sales.update(id, dto, actor);
+  }
+
+  /** Admin only, not delegable: deleting a paid sale removes money from the books. */
+  @Delete(':id')
+  @Roles('admin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
+    await this.sales.remove(id, actor);
   }
 }

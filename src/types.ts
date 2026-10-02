@@ -309,6 +309,7 @@ export interface Transaction {
   items: TransactionItem[];
   soldByEmployee?: { id: string; name: string };
   client?: { id: string; name: string; legacyId?: number | null };
+  discount?: { id: string; kind: DiscountKind; value: number; note?: string | null } | null;
 }
 
 export interface RefundItem {

@@ -136,7 +136,7 @@ export class PurchasingService {
         });
       } else {
         const [product] = await tx.select().from(products).where(eq(products.id, dto.productId!)).limit(1);
-        if (!product) throw new NotFoundAppError('Product', dto.productId!);
+        if (!product || product.deletedAt) throw new NotFoundAppError('Product', dto.productId!);
         if (product.kind === 'service') {
           throw new ValidationAppError('Services cannot be received as a supplier shipment — there is no stock to receive.', {
             productId: product.id,

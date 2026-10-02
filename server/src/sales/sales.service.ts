@@ -4,7 +4,19 @@ import { and, asc, desc, eq, gte, inArray, sql as rawSql } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
-import { clients, discounts, employees, products, transactionItems, transactionPayments, transactions, type Product } from '../db/schema';
+import {
+  clients,
+  discounts,
+  employees,
+  products,
+  refunds,
+  stockMovements,
+  transactionItems,
+  transactionPayments,
+  transactions,
+  type Discount,
+  type Product,
+} from '../db/schema';
 import { ForbiddenAppError, NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
 import { IdempotencyService } from '../common/idempotency/idempotency.service';
@@ -18,12 +30,15 @@ const WALK_IN_CUSTOMER_NAME = 'Walk-in customer';
 
 const PAYMENT_COLUMNS = { columns: { method: true, amount: true } } as const;
 
+const egpLabel = (piastres: number) => `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+
 /** What every sale list and read returns alongside the sale itself. */
 const SALE_RELATIONS = {
   items: { with: { product: { columns: { id: true, name: true } } } },
   payments: PAYMENT_COLUMNS,
   soldByEmployee: { columns: { id: true, name: true } },
   client: { columns: { id: true, name: true, legacyId: true } },
+  discount: { columns: { id: true, kind: true, value: true, note: true } },
 } as const;
 
 /** The payment rows for a new sale: the explicit split if given, else the legacy single
@@ -45,8 +60,7 @@ function normalizePayments(lines: PaymentLine[], total: number): PaymentLine[] {
   const merged = [...byMethod].map(([method, amount]) => ({ method, amount }));
   const paid = merged.reduce((sum, p) => sum + p.amount, 0);
   if (merged.length > 0 && paid !== total) {
-    const egp = (piastres: number) => `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-    throw new ValidationAppError(`The payments add up to ${egp(paid)}, but the bill is ${egp(total)}.`, { paid, total });
+    throw new ValidationAppError(`The payments add up to ${egpLabel(paid)}, but the bill is ${egpLabel(total)}.`, { paid, total });
   }
   return merged;
 }
@@ -212,10 +226,9 @@ export class SalesService {
   }
 
   /**
-   * Corrects who a sale was for, when it happened and/or how it was paid. Open to every role
-   * (the till is everyone's), and always audited with the before and after, so a correction
-   * is never silent. Nothing else about a sale is editable here: items and prices stay as
-   * rung up.
+   * Corrects who a sale was for, when it happened, how it was paid and (admin only) which
+   * discount it carries. Always audited with the before and after, so a correction is never
+   * silent. Items and prices stay as rung up — that's what a refund is for.
    */
   async update(id: string, dto: UpdateSaleDto, actor: Actor) {
     return this.db.transaction(async (tx) => {
@@ -225,14 +238,22 @@ export class SalesService {
         .select({ method: transactionPayments.method, amount: transactionPayments.amount })
         .from(transactionPayments)
         .where(eq(transactionPayments.transactionId, id));
+      const [beforeDiscount] = before.discountId
+        ? await tx.select().from(discounts).where(eq(discounts.id, before.discountId)).limit(1)
+        : [];
+
+      const discountChanging = dto.discountId !== undefined && dto.discountId !== before.discountId;
+      if (discountChanging) {
+        // Changes what the customer was charged, so it stays with the owner.
+        if (actor.role !== 'admin') throw new ForbiddenAppError('Only an admin can change the discount on a sale.');
+        const [{ refunded }] = await tx.select({ refunded: rawSql<number>`count(*)::int` }).from(refunds).where(eq(refunds.transactionId, id));
+        if (refunded > 0) {
+          throw new ValidationAppError('This sale has been partly or fully refunded, so its discount can’t be changed — the refunds were priced on the old total.');
+        }
+      }
 
       let customer = { clientId: before.clientId, customerName: before.customerName };
       if (dto.clientId !== undefined && dto.clientId !== before.clientId) {
-        // A discount belongs to one client and was spent on this sale; moving the sale to
-        // someone else would leave that client's discount attached to a stranger's bill.
-        if (before.discountId) {
-          throw new ValidationAppError('This sale used a customer discount, so its customer can’t be changed.');
-        }
         if (dto.clientId === null) {
           customer = { clientId: null, customerName: WALK_IN_CUSTOMER_NAME };
         } else {
@@ -242,6 +263,43 @@ export class SalesService {
           customer = { clientId: dto.clientId, customerName: client.name };
         }
         await tx.update(transactions).set(customer).where(eq(transactions.id, id));
+      }
+
+      // The discount the sale ends up with, and what it takes off. A discount belongs to one
+      // client, so it must belong to whoever the sale ends up being for.
+      const finalDiscountId = discountChanging ? dto.discountId! : before.discountId;
+      let finalDiscount: Discount | null = beforeDiscount ?? null;
+      if (discountChanging && finalDiscountId) {
+        const [found] = await tx.select().from(discounts).where(eq(discounts.id, finalDiscountId)).limit(1);
+        if (!found) throw new NotFoundAppError('Discount', finalDiscountId);
+        finalDiscount = found;
+      } else if (discountChanging) {
+        finalDiscount = null;
+      }
+      if (finalDiscount && finalDiscount.clientId !== customer.clientId) {
+        throw new ValidationAppError(
+          discountChanging
+            ? 'That discount belongs to a different client than this sale.'
+            : 'This sale used a customer discount, so its customer can’t be changed. Remove the discount first.',
+        );
+      }
+
+      let total = before.total;
+      let discountAmount = before.discountAmount;
+      if (discountChanging) {
+        if (before.discountId) {
+          // Hand the old discount back to its client, unused.
+          await tx.update(discounts).set({ usedInTransactionId: null }).where(eq(discounts.id, before.discountId));
+        }
+        if (finalDiscount) {
+          await this.discounts.claim(tx, finalDiscount.id, customer.clientId!, id);
+          const raw = finalDiscount.kind === 'percent' ? Math.round((before.subtotal * finalDiscount.value) / 100) : finalDiscount.value;
+          discountAmount = Math.min(before.subtotal, raw);
+        } else {
+          discountAmount = null;
+        }
+        total = before.subtotal - (discountAmount ?? 0);
+        await tx.update(transactions).set({ discountId: finalDiscount?.id ?? null, discountAmount, total }).where(eq(transactions.id, id));
       }
 
       let occurredAt = before.createdAt;
@@ -258,19 +316,31 @@ export class SalesService {
         await tx.update(transactions).set({ createdAt: occurredAt }).where(eq(transactions.id, id));
       }
 
+      // Payments always add up to the total. When a discount moves the total and no new split
+      // was sent, a single-method sale simply follows it; a split one has to be re-split.
       let payments: PaymentLine[] = beforePayments;
       if (dto.payments !== undefined) {
-        payments = normalizePayments(dto.payments, before.total);
+        payments = normalizePayments(dto.payments, total);
+      } else if (total !== before.total && beforePayments.length === 1) {
+        payments = total > 0 ? [{ method: beforePayments[0].method, amount: total }] : [];
+      } else if (total !== before.total && beforePayments.length > 1) {
+        throw new ValidationAppError(`This sale was split between methods — adjust the split to the new total of ${egpLabel(total)}.`);
+      }
+      if (payments !== beforePayments) {
         await tx.delete(transactionPayments).where(eq(transactionPayments.transactionId, id));
         if (payments.length > 0) {
           await tx.insert(transactionPayments).values(payments.map((p) => ({ ...p, transactionId: id })));
         }
       }
 
-      const snapshot = (name: string, at: Date, paid: PaymentLine[]) => ({
+      const discountLabel = (d: typeof finalDiscount) =>
+        d ? `${d.kind === 'percent' ? `${d.value}%` : egpLabel(d.value)} off${d.note ? ` (${d.note})` : ''}` : null;
+      const snapshot = (name: string, at: Date, paid: PaymentLine[], d: typeof finalDiscount, sum: number) => ({
         invoice: `INV-${before.invoiceYear}-${String(before.invoiceNo).padStart(5, '0')}`,
         customer: name,
         occurredAt: at.toISOString(),
+        discount: discountLabel(d),
+        total: sum,
         payments: paid,
       });
       await this.audit.log(tx, {
@@ -278,12 +348,68 @@ export class SalesService {
         action: 'sale.update',
         entityType: 'transaction',
         entityId: id,
-        before: snapshot(before.customerName, before.createdAt, beforePayments),
-        after: snapshot(customer.customerName, occurredAt, payments),
+        before: snapshot(before.customerName, before.createdAt, beforePayments, beforeDiscount ?? null, before.total),
+        after: snapshot(customer.customerName, occurredAt, payments, finalDiscount, total),
       });
 
       const row = await tx.query.transactions.findFirst({ where: eq(transactions.id, id), with: SALE_RELATIONS });
       return row!;
+    });
+  }
+
+  /**
+   * Admin only: removes a sale as if it had never been rung up — its items and payments go,
+   * every stock movement it made is reversed (so the ledger still sums to the count), and a
+   * discount it used goes back to the client unused. A full copy is kept in the audit log.
+   * A refunded sale can't be deleted: the refund has its own money and stock trail.
+   */
+  async remove(id: string, actor: Actor) {
+    await this.db.transaction(async (tx) => {
+      const [txn] = await tx.select().from(transactions).where(eq(transactions.id, id)).for('update');
+      if (!txn) throw new NotFoundAppError('Transaction', id);
+      const [{ refunded }] = await tx.select({ refunded: rawSql<number>`count(*)::int` }).from(refunds).where(eq(refunds.transactionId, id));
+      if (refunded > 0) {
+        throw new ValidationAppError('This sale has refunds recorded against it, so it can’t be deleted.');
+      }
+
+      const items = await tx.select().from(transactionItems).where(eq(transactionItems.transactionId, id));
+      const payments = await tx
+        .select({ method: transactionPayments.method, amount: transactionPayments.amount })
+        .from(transactionPayments)
+        .where(eq(transactionPayments.transactionId, id));
+      const movements = await tx.select().from(stockMovements).where(eq(stockMovements.refId, id));
+
+      // Undo the sale's net effect on each product's count (including any "topped up"
+      // adjustment it triggered), then drop its ledger rows.
+      const netByProduct = new Map<string, number>();
+      for (const m of movements) netByProduct.set(m.productId, (netByProduct.get(m.productId) ?? 0) + m.delta);
+      for (const productId of [...netByProduct.keys()].sort()) {
+        await tx
+          .update(products)
+          .set({ stockQuantity: rawSql`${products.stockQuantity} - ${netByProduct.get(productId)!}` })
+          .where(eq(products.id, productId));
+      }
+      await tx.delete(stockMovements).where(eq(stockMovements.refId, id));
+      if (txn.discountId) {
+        await tx.update(discounts).set({ usedInTransactionId: null }).where(eq(discounts.id, txn.discountId));
+      }
+      await tx.delete(transactions).where(eq(transactions.id, id)); // items and payments cascade
+
+      await this.audit.log(tx, {
+        actorId: actor.id,
+        action: 'sale.delete',
+        entityType: 'transaction',
+        entityId: id,
+        before: {
+          invoice: `INV-${txn.invoiceYear}-${String(txn.invoiceNo).padStart(5, '0')}`,
+          customer: txn.customerName,
+          total: txn.total,
+          transaction: txn,
+          items,
+          payments,
+          stockMovements: movements,
+        },
+      });
     });
   }
 

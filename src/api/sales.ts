@@ -61,6 +61,8 @@ export interface UpdateSaleInput {
   id: string;
   /** The client the sale belongs to; null makes it a walk-in. */
   clientId?: string | null;
+  /** Admin only: the client discount to apply; null removes it. */
+  discountId?: string | null;
   /** Cairo wall time, "YYYY-MM-DDTHH:mm" — the server applies the clinic's UTC offset. */
   occurredAt?: string;
   payments?: PaymentLine[];
@@ -74,6 +76,21 @@ export function useUpdateSale() {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       // Moving a sale to another day or method moves it between the income figures.
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['discounts'] });
+    },
+  });
+}
+
+/** Admin only: removes the sale, returns its stock and frees any discount it used. */
+export function useDeleteSale() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/sales/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['discounts'] });
     },
   });
 }

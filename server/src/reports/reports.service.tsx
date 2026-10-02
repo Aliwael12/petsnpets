@@ -90,6 +90,8 @@ const OTHER_ACTIVITY_LABELS: Record<string, string> = {
   'category.delete': 'Removed category',
   'sale.update': 'Edited sale',
   'income.reallocate': 'Reallocated income between methods',
+  'sale.delete': 'Deleted sale',
+  'product.delete': 'Deleted product',
   'client.update': 'Edited client',
   'client.delete': 'Deleted client',
   'boarding.update': 'Updated boarding stay',
@@ -760,6 +762,7 @@ export class ReportsService {
             (after?.description as string | undefined) ??
             (before?.description as string | undefined) ??
             (after?.invoice as string | undefined) ??
+            (before?.invoice as string | undefined) ??
             (a.action === 'income.reallocate' ? (after?.month as string | undefined) : undefined) ??
             (petId ? petName.get(petId) : undefined) ??
             (a.entityType === 'employee' && a.entityId
@@ -923,6 +926,9 @@ function describeChange(
   time: (d: Date | string) => string,
 ): string {
   if (!before && !after) return '—';
+  // A deletion has only a "before": say what went.
+  if (before && !after && typeof before.total === 'number')
+    return `${before.customer ?? ''} · ${egp(before.total)}`.replace(/^ · /, '');
   if (!before || !after) return '—';
   const changes = Object.keys(after)
     .filter(

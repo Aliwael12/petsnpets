@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, ilike, or, sql as rawSql } from 'drizzle-orm';
+import { and, asc, eq, ilike, isNull, or, sql as rawSql } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
 import { products } from '../db/schema';
@@ -21,6 +21,7 @@ export class ProductsService {
 
   async list(query: ListProductsQueryDto) {
     const conditions = [
+      isNull(products.deletedAt),
       query.activeOnly ? eq(products.active, true) : undefined,
       query.category ? eq(products.category, query.category) : undefined,
       query.search ? or(ilike(products.name, `%${query.search}%`), ilike(products.sku, `%${query.search}%`)) : undefined,
@@ -39,7 +40,7 @@ export class ProductsService {
     return this.db
       .select()
       .from(products)
-      .where(and(eq(products.active, true), ilike(products.name, `%${q}%`)))
+      .where(and(eq(products.active, true), isNull(products.deletedAt), ilike(products.name, `%${q}%`)))
       .orderBy(
         rawSql`case when ${products.name} ilike ${q + '%'} then 0 else 1 end`,
         asc(products.name),
@@ -100,7 +101,7 @@ export class ProductsService {
 
   async update(id: string, dto: UpdateProductDto, actor: Actor) {
     const [before] = await this.db.select().from(products).where(eq(products.id, id)).limit(1);
-    if (!before) throw new NotFoundAppError('Product', id);
+    if (!before || before.deletedAt) throw new NotFoundAppError('Product', id);
 
     // Resolved before opening the transaction, like create()'s and PurchasingService's own
     // category lookups: CategoriesService.resolveActiveOrThrow() queries through its own
@@ -149,6 +150,23 @@ export class ProductsService {
         after,
       });
       return after;
+    });
+  }
+
+  /**
+   * Admin only. A soft delete: the row stays, so every past sale, refund and stock movement
+   * still resolves to it and analytics are unchanged — it just disappears from the catalog,
+   * the till and the price checker. Its SKU is freed so a new product can reuse it.
+   */
+  async remove(id: string, actor: Actor) {
+    await this.db.transaction(async (tx) => {
+      const [before] = await tx.select().from(products).where(eq(products.id, id)).for('update');
+      if (!before || before.deletedAt) throw new NotFoundAppError('Product', id);
+      await tx
+        .update(products)
+        .set({ deletedAt: new Date(), active: false, sku: `${before.sku} (deleted ${id.slice(0, 8)})` })
+        .where(eq(products.id, id));
+      await this.audit.log(tx, { actorId: actor.id, action: 'product.delete', entityType: 'product', entityId: id, before });
     });
   }
 }

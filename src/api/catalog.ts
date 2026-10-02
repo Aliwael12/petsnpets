@@ -68,6 +68,14 @@ export function useUpdateProduct() {
   });
 }
 
+/** Admin only: hides the product for good; its past sales stay in history and analytics. */
+export function useDeleteProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/catalog/products/${id}`),
+    onSuccess: () => invalidateCatalog(queryClient),
+  });
+}
 
 // --- Categories (Settings → Categories) -----------------------------------
 

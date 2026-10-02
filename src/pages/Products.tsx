@@ -2,17 +2,18 @@ import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
 import { canEditProducts } from '../lib/permissions';
-import { useCategories, useCreateProduct, useProducts, useUpdateProduct } from '../api/catalog';
+import { useCategories, useCreateProduct, useDeleteProduct, useProducts, useUpdateProduct } from '../api/catalog';
 import { ApiError } from '../api/client';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select, formatCurrency } from '../components/ui';
 import type { Product, ProductCategory } from '../types';
-import { Pencil, Plus, Power, Search } from 'lucide-react';
+import { Pencil, Plus, Power, Search, Trash2 } from 'lucide-react';
 
 const emptyForm = { name: '', brand: '', category: '' as ProductCategory, sku: '', unitPrice: '', stockQuantity: '', lowStockThreshold: '' };
 
 export function Products() {
   const employee = useAuthStore((s) => s.employee);
   const canEdit = canEditProducts(employee);
+  const isAdmin = employee?.role === 'admin';
   const { data: categories = [] } = useCategories();
   // Deactivated categories still have to appear in the *filter* (existing products may sit
   // in one), but only active ones are offered when creating something new.
@@ -26,6 +27,8 @@ export function Products() {
 
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
+  const deleteProduct = useDeleteProduct();
+  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | ProductCategory>('all');
@@ -193,6 +196,15 @@ export function Products() {
                             >
                               <Power size={15} />
                             </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => setDeleteTarget(p)}
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                title="Delete"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       )}
@@ -291,6 +303,36 @@ export function Products() {
               }}
             >
               Deactivate
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {deleteTarget && (
+        <Modal title="Delete product" onClose={() => setDeleteTarget(null)}>
+          <p className="text-sm text-slate-600">
+            Delete <span className="font-medium text-navy-950">{deleteTarget.name}</span>? It disappears from the catalog, POS and
+            price checker for good. Its past sales stay in transaction history, income and analytics, so no numbers change.
+          </p>
+          <p className="mt-2 text-xs text-slate-400">To hide it only for a while, deactivate it instead.</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              disabled={deleteProduct.isPending}
+              onClick={() =>
+                deleteProduct.mutate(deleteTarget.id, {
+                  onSuccess: () => {
+                    toast.success('Product deleted');
+                    setDeleteTarget(null);
+                  },
+                  onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not delete the product'),
+                })
+              }
+            >
+              {deleteProduct.isPending ? 'Deleting\u2026' : 'Delete product'}
             </Button>
           </div>
         </Modal>

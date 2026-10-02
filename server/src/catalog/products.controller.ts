@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Roles } from '../auth/roles.decorator';
 import { ProductsService } from './products.service';
 import { Permissions } from '../auth/permissions.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
@@ -53,5 +54,13 @@ export class ProductsController {
     @CurrentActor() actor: Actor,
   ) {
     return this.products.update(id, dto, actor);
+  }
+
+  /** Admin only. Hides the product for good; its sales history and analytics stay. */
+  @Delete(':id')
+  @Roles('admin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
+    await this.products.remove(id, actor);
   }
 }

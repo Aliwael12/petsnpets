@@ -47,6 +47,9 @@ export const updateSaleSchema = z
     /** The client the sale belongs to; null makes it a walk-in. The name on the sale is
      *  re-derived from the client record, as at checkout. */
     clientId: z.uuid().nullable().optional(),
+    /** Admin only: the client discount to apply (null removes it). The total is re-priced
+     *  from the sale's subtotal, exactly as checkout prices it. */
+    discountId: z.uuid().nullable().optional(),
     /** Clinic-local wall time, "YYYY-MM-DDTHH:mm" (what a datetime-local input gives) — the
      *  server converts it using the clinic's timezone, so the browser never has to know
      *  Cairo's UTC offset on that date. */
@@ -56,7 +59,7 @@ export const updateSaleSchema = z
       .optional(),
     payments: paymentsSchema.optional(),
   })
-  .refine((v) => v.clientId !== undefined || v.occurredAt !== undefined || v.payments !== undefined, {
+  .refine((v) => v.clientId !== undefined || v.discountId !== undefined || v.occurredAt !== undefined || v.payments !== undefined, {
     message: 'Nothing to change.',
   });
 export type UpdateSaleDto = z.infer<typeof updateSaleSchema>;

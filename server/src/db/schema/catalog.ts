@@ -52,6 +52,10 @@ export const products = pgTable(
     stockQuantity: integer('stock_quantity').notNull().default(0),
     lowStockThreshold: integer('low_stock_threshold').notNull().default(0),
     active: boolean('active').notNull().default(true),
+    /** Set when the admin deletes the product. It is never removed from the table: past
+     *  sales, refunds and stock history still point at it and keep counting in analytics.
+     *  A deleted product is hidden from the catalog and can't be sold, stocked or edited. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
