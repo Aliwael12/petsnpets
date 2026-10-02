@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { dayKeySchema } from '../../common/dto/date-range.dto';
+import { paymentMethodEnum } from '../../db/schema/enums';
 
 const piastres = z.number().int().nonnegative();
 
@@ -13,6 +14,8 @@ export const createBoardingSchema = z
     petId: z.uuid(),
     totalAmount: piastres,
     paidAmount: piastres.default(0),
+    /** How the money paid now was taken. Optional; omitted means "not recorded". */
+    paymentMethod: z.enum(paymentMethodEnum.enumValues).optional(),
     startDate: dayKeySchema,
     endDate: dayKeySchema,
     note: z.string().trim().max(500).optional(),
@@ -25,6 +28,8 @@ export const updateBoardingSchema = z
   .object({
     totalAmount: piastres.optional(),
     paidAmount: piastres.optional(),
+    /** How the change in paidAmount was taken (or given back). */
+    paymentMethod: z.enum(paymentMethodEnum.enumValues).optional(),
     startDate: dayKeySchema.optional(),
     endDate: dayKeySchema.optional(),
     note: z.string().trim().max(500).optional(),

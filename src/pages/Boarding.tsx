@@ -8,7 +8,7 @@ import { ApiError } from '../api/client';
 import { todayKey } from '../lib/timezone';
 import { ClientPicker } from '../components/ClientPicker';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select, StatTile, TabSwitch, Textarea, formatCurrency, formatDate } from '../components/ui';
-import type { Boarding as BoardingStay } from '../types';
+import { PAYMENT_METHOD_LABELS, type Boarding as BoardingStay, type PaymentMethod } from '../types';
 
 type Status = 'staying' | 'upcoming' | 'done';
 type Filter = Status | 'all';
@@ -184,6 +184,7 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
   const [petId, setPetId] = useState(editing?.petId ?? '');
   const [total, setTotal] = useState(editing ? String(editing.totalAmount / 100) : '');
   const [paid, setPaid] = useState(editing ? String(editing.paidAmount / 100) : '');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [startDate, setStartDate] = useState(editing?.startDate ?? todayKey());
   const [endDate, setEndDate] = useState(editing?.endDate ?? '');
   const [note, setNote] = useState(editing?.note ?? '');
@@ -205,7 +206,7 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
     const onError = (err: unknown) => toast.error(err instanceof ApiError ? err.message : 'Could not save the stay');
     if (editing) {
       updateStay.mutate(
-        { id: editing.id, patch: { totalAmount, paidAmount, startDate, endDate, note: note.trim() } },
+        { id: editing.id, patch: { totalAmount, paidAmount, paymentMethod: paymentMethod || undefined, startDate, endDate, note: note.trim() } },
         {
           onSuccess: () => {
             toast.success('Stay updated');
@@ -216,7 +217,7 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
       );
     } else {
       createStay.mutate(
-        { clientId, petId, totalAmount, paidAmount, startDate, endDate, note: note.trim() || undefined },
+        { clientId, petId, totalAmount, paidAmount, paymentMethod: paymentMethod || undefined, startDate, endDate, note: note.trim() || undefined },
         {
           onSuccess: () => {
             toast.success('Stay logged');
@@ -282,6 +283,24 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
             <Input type="number" min="0" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" />
           </div>
         </div>
+        {paidAmount !== (editing?.paidAmount ?? 0) && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              {paidAmount > (editing?.paidAmount ?? 0)
+                ? `Paid with: the ${formatCurrency(paidAmount - (editing?.paidAmount ?? 0))} taken now (optional)`
+                : `Given back with: the ${formatCurrency((editing?.paidAmount ?? 0) - paidAmount)} reduction (optional)`}
+            </label>
+            <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod | '')}>
+              <option value="">Not recorded</option>
+              {(['cash', 'instapay', 'card', 'vodafone_cash'] as PaymentMethod[]).map((m) => (
+                <option key={m} value={m}>
+                  {PAYMENT_METHOD_LABELS[m]}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-xs text-slate-400">Money paid on a stay counts as income on the day it&rsquo;s entered.</p>
+          </div>
+        )}
         {total && (
           <p className={`text-sm font-medium ${left > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
             {left > 0 ? `Left to pay: ${formatCurrency(left)}` : left < 0 ? `Overpaid by ${formatCurrency(-left)}` : 'Paid in full'}
