@@ -10,7 +10,7 @@ import { ApiError } from '../api/client';
 import { todayKey } from '../lib/timezone';
 import { ClientPicker } from '../components/ClientPicker';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select, StatTile, TabSwitch, Textarea, formatCurrency, formatDate } from '../components/ui';
-import { PAYMENT_METHOD_LABELS, type Boarding as BoardingStay, type PaymentMethod } from '../types';
+import { PAYMENT_METHOD_LABELS, type Boarding as BoardingStay, type PaymentMethod, type StayKind } from '../types';
 
 type Status = 'staying' | 'upcoming' | 'done';
 type Filter = Status | 'all';
@@ -26,6 +26,11 @@ const STATUS_BADGE: Record<Status, { tone: string; label: string }> = {
   upcoming: { tone: 'vaccination', label: 'Upcoming' },
   done: { tone: 'inactive', label: 'Checked out' },
 };
+
+const STAY_KIND_LABELS: Record<StayKind, string> = { boarding: 'Boarding', hospitalization: 'Hospitalization' };
+
+/** Per-day price, keeping piastres when the total doesn't divide evenly. */
+const perDayLabel = (piastres: number) => `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
 function nights(start: string, end: string): number {
   return Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
@@ -125,7 +130,10 @@ export function Boarding() {
                   return (
                     <tr key={s.id}>
                       <td className="px-5 py-3">
-                        <p className="font-medium text-navy-950">{s.pet?.name ?? 'Unknown'}</p>
+                        <p className="font-medium text-navy-950">
+                          {s.pet?.name ?? 'Unknown'}{' '}
+                          {s.kind === 'hospitalization' && <Badge tone="low">Hospitalization</Badge>}
+                        </p>
                         {s.note && <p className="whitespace-pre-line text-xs text-slate-400">{s.note}</p>}
                       </td>
                       <td className="px-5 py-3 text-slate-600">
@@ -227,11 +235,14 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [startDate, setStartDate] = useState(editing?.startDate ?? todayKey());
   const [endDate, setEndDate] = useState(editing?.endDate ?? '');
+  const [kind, setKind] = useState<StayKind>(editing?.kind ?? 'boarding');
   const [note, setNote] = useState(editing?.note ?? '');
 
   const { data: pets = [], isLoading: petsLoading } = useReminderPets(editing ? '' : clientId);
 
   const totalAmount = toPiastres(total);
+  // Days are counted the way the stays list counts nights; a same-day stay counts as one day.
+  const stayDays = startDate && endDate && endDate >= startDate ? Math.max(1, nights(startDate, endDate)) : 0;
   const paidAmount = toPiastres(paid);
   const left = totalAmount - paidAmount;
 
@@ -246,7 +257,7 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
     const onError = (err: unknown) => toast.error(err instanceof ApiError ? err.message : 'Could not save the stay');
     if (editing) {
       updateStay.mutate(
-        { id: editing.id, patch: { totalAmount, paidAmount, paymentMethod: paymentMethod || undefined, startDate, endDate, note: note.trim() } },
+        { id: editing.id, patch: { kind, totalAmount, paidAmount, paymentMethod: paymentMethod || undefined, startDate, endDate, note: note.trim() } },
         {
           onSuccess: () => {
             toast.success('Stay updated');
@@ -257,7 +268,7 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
       );
     } else {
       createStay.mutate(
-        { clientId, petId, totalAmount, paidAmount, paymentMethod: paymentMethod || undefined, startDate, endDate, note: note.trim() || undefined },
+        { clientId, petId, kind, totalAmount, paidAmount, paymentMethod: paymentMethod || undefined, startDate, endDate, note: note.trim() || undefined },
         {
           onSuccess: () => {
             toast.success('Stay logged');
@@ -302,6 +313,24 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
           </>
         )}
 
+        <div>
+          <p className="mb-1 text-xs font-medium text-slate-500">Type</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {(['boarding', 'hospitalization'] as StayKind[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                className={`rounded-lg border px-2 py-2 text-sm font-medium transition-colors ${
+                  kind === k ? 'border-navy-800 bg-navy-800 text-white' : 'border-slate-200 text-slate-600 hover:border-navy-400'
+                }`}
+              >
+                {STAY_KIND_LABELS[k]}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Start date</label>
@@ -317,6 +346,12 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Total for the stay (EGP)</label>
             <Input type="number" min="0" value={total} onChange={(e) => setTotal(e.target.value)} />
+            {stayDays > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                {stayDays} {stayDays === 1 ? 'day' : 'days'}
+                {totalAmount > 0 && ` · ${perDayLabel(totalAmount / stayDays)} per day`}
+              </p>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Paid so far (EGP)</label>
@@ -337,7 +372,7 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
             {paidAmount > (editing?.paidAmount ?? 0)
               ? `The ${formatCurrency(paidAmount - (editing?.paidAmount ?? 0))} paid now is recorded as a sale on the Transactions page, under this method.`
               : paidAmount < (editing?.paidAmount ?? 0)
-                ? 'Money already paid can’t be lowered here. Ask the admin to delete that boarding sale on the Transactions page.'
+                ? 'Money already paid can’t be lowered here. Ask the admin to delete that sale on the Transactions page.'
                 : 'Whatever is paid is recorded as a sale on the Transactions page.'}
           </p>
         </div>

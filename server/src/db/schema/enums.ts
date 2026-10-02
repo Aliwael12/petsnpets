@@ -13,6 +13,9 @@ export type Role = (typeof roleEnum.enumValues)[number];
 
 export const productKindEnum = pgEnum('product_kind', ['good', 'service']);
 
+/** What a stay at the clinic is: an ordinary boarding, or a hospitalization (rung up as such). */
+export const stayKindEnum = pgEnum('stay_kind', ['boarding', 'hospitalization']);
+
 export const speciesEnum = pgEnum('species', ['dog', 'cat', 'bird', 'rabbit', 'other']);
 
 export const petSexEnum = pgEnum('pet_sex', ['male', 'female']);

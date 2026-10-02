@@ -42,7 +42,7 @@ export class BoardingsService {
         .values({ ...fields, createdBy: actor.id })
         .returning();
       if (row.paidAmount > 0) {
-        await this.sales.recordBoardingPayment(tx, { boardingId: row.id, clientId: row.clientId, amount: row.paidAmount, method: paymentMethod, actor });
+        await this.sales.recordBoardingPayment(tx, { boardingId: row.id, clientId: row.clientId, kind: row.kind, amount: row.paidAmount, method: paymentMethod, actor });
       }
 
       await this.audit.log(tx, { actorId: actor.id, action: 'boarding.create', entityType: 'boarding', entityId: row.id, after: row });
@@ -77,7 +77,7 @@ export class BoardingsService {
         );
       }
       if (delta > 0) {
-        await this.sales.recordBoardingPayment(tx, { boardingId: id, clientId: after.clientId, amount: delta, method: paymentMethod, actor });
+        await this.sales.recordBoardingPayment(tx, { boardingId: id, clientId: after.clientId, kind: after.kind, amount: delta, method: paymentMethod, actor });
       }
 
       await this.audit.log(tx, { actorId: actor.id, action: 'boarding.update', entityType: 'boarding', entityId: id, before, after });

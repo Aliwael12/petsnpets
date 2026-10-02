@@ -1,6 +1,7 @@
 import { bigint, check, date, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { clients } from './clients';
+import { stayKindEnum } from './enums';
 import { pets } from './pets';
 import { employees } from './employees';
 
@@ -19,6 +20,8 @@ export const boardings = pgTable(
     clientId: uuid('client_id')
       .notNull()
       .references(() => clients.id, { onDelete: 'restrict' }),
+    /** Boarding or hospitalization: decides which product its payments are rung up as. */
+    kind: stayKindEnum('kind').notNull().default('boarding'),
     petId: uuid('pet_id')
       .notNull()
       .references(() => pets.id, { onDelete: 'restrict' }),

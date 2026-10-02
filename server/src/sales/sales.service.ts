@@ -28,6 +28,8 @@ import type { CreateSaleDto, ListSalesQueryDto, PaymentLine, UpdateSaleDto } fro
 
 /** The hidden service product every boarding payment is rung up as (seeded by migration). */
 export const BOARDING_SKU = 'BOARDING';
+/** The same, for a stay marked as a hospitalization. */
+export const HOSPITALIZATION_SKU = 'HOSPITALIZATION';
 
 /** What an unlinked sale is billed to, on the invoice and in every list. */
 const WALK_IN_CUSTOMER_NAME = 'Walk-in customer';
@@ -431,17 +433,18 @@ export class SalesService {
   }
 
   /**
-   * Rings up money paid on a boarding stay as an ordinary sale: one "Boarding" line at the
+   * Rings up money paid on a stay as an ordinary sale: one "Boarding" (or "Hospitalization") line at the
    * amount paid, for the stay's client, sold by whoever entered it, paid by `method` (or
    * not recorded). Runs inside the boarding's own transaction so the stay and its sale
    * commit together.
    */
   async recordBoardingPayment(
     tx: Database,
-    p: { boardingId: string; clientId: string; amount: number; method?: PaymentLine['method']; actor: Actor },
+    p: { boardingId: string; clientId: string; kind: 'boarding' | 'hospitalization'; amount: number; method?: PaymentLine['method']; actor: Actor },
   ) {
-    const [product] = await tx.select({ id: products.id }).from(products).where(eq(products.sku, BOARDING_SKU)).limit(1);
-    if (!product) throw new NotFoundAppError('Product', BOARDING_SKU);
+    const sku = p.kind === 'hospitalization' ? HOSPITALIZATION_SKU : BOARDING_SKU;
+    const [product] = await tx.select({ id: products.id }).from(products).where(eq(products.sku, sku)).limit(1);
+    if (!product) throw new NotFoundAppError('Product', sku);
     const [client] = await tx.select({ name: clients.name }).from(clients).where(eq(clients.id, p.clientId)).limit(1);
     if (!client) throw new NotFoundAppError('Client', p.clientId);
 

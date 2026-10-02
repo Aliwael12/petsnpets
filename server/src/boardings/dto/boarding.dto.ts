@@ -12,6 +12,7 @@ export const createBoardingSchema = z
   .object({
     clientId: z.uuid(),
     petId: z.uuid(),
+    kind: z.enum(['boarding', 'hospitalization']).default('boarding'),
     totalAmount: piastres,
     paidAmount: piastres.default(0),
     /** How the money paid now was taken. Optional; omitted means "not recorded". */
@@ -26,6 +27,7 @@ export type CreateBoardingDto = z.infer<typeof createBoardingSchema>;
 /** Everything that changes during a stay: another payment, an extension, a corrected price. */
 export const updateBoardingSchema = z
   .object({
+    kind: z.enum(['boarding', 'hospitalization']).optional(),
     totalAmount: piastres.optional(),
     paidAmount: piastres.optional(),
     /** How the change in paidAmount was taken (or given back). */

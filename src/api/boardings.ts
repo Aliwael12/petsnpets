@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { Boarding, PaymentMethod } from '../types';
+import type { Boarding, PaymentMethod, StayKind } from '../types';
 
 export function useBoardings() {
   return useQuery({ queryKey: ['boardings'], queryFn: () => api.get<Boarding[]>('/boardings') });
@@ -9,6 +9,7 @@ export function useBoardings() {
 export interface CreateBoardingInput {
   clientId: string;
   petId: string;
+  kind: StayKind;
   totalAmount: number;
   paidAmount: number;
   /** How the money paid now was taken; omitted means "not recorded". */
@@ -31,7 +32,7 @@ export function useCreateBoarding() {
   });
 }
 
-export type UpdateBoardingInput = Partial<Pick<CreateBoardingInput, 'totalAmount' | 'paidAmount' | 'paymentMethod' | 'startDate' | 'endDate' | 'note'>>;
+export type UpdateBoardingInput = Partial<Pick<CreateBoardingInput, 'kind' | 'totalAmount' | 'paidAmount' | 'paymentMethod' | 'startDate' | 'endDate' | 'note'>>;
 
 export function useUpdateBoarding() {
   const queryClient = useQueryClient();

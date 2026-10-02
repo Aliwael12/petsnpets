@@ -149,10 +149,13 @@ export interface Reminder {
 
 /** A pet staying at the clinic. Amounts are piastres; what's left is total − paid. Dates are
  *  plain YYYY-MM-DD calendar days. */
+export type StayKind = 'boarding' | 'hospitalization';
+
 export interface Boarding {
   id: string;
   clientId: string;
   petId: string;
+  kind: StayKind;
   totalAmount: number;
   paidAmount: number;
   startDate: string;
