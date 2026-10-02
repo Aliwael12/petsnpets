@@ -56,11 +56,16 @@ function buildMonthGrid(year: number, month: number): GridCell[] {
 }
 
 /** Reminders and booked appointments share the grid, so they're normalised to one shape
- * before rendering — the cell doesn't care which source an entry came from. */
-type CalEvent =
+ * before rendering — the cell doesn't care which source an entry came from. `chip` is what
+ * the day cell prints: the client's ID when there is one, else the name. */
+type CalEvent = { chip: string } & (
   | { kind: 'reminder'; id: string; dateKey: string; label: string; sub: string; href: string; overdue: boolean }
   | { kind: 'task'; id: string; dateKey: string; label: string; sub: string; overdue: boolean; reminder: Reminder }
-  | { kind: 'appointment'; id: string; dateKey: string; label: string; sub: string; status: Appointment['status'] };
+  | { kind: 'appointment'; id: string; dateKey: string; label: string; sub: string; status: Appointment['status'] }
+);
+
+/** "#1394" for a client with an ID, otherwise the fallback (a pet or owner name). */
+const idChip = (legacyId: number | null | undefined, fallback: string) => (legacyId != null ? `#${legacyId}` : fallback);
 
 /** One row of the search results: a booking or a reminder, with who it's for. */
 interface SearchHit {
@@ -123,6 +128,7 @@ export function Calendar() {
           href: `/pet-logs?pet=${l.pet.id}`,
           overdue: businessDayKey(l.nextDueDate) < todayKey,
           ownerName: l.pet.client?.name ?? 'Unknown',
+          chip: idChip(l.pet.client?.legacyId, l.pet.name),
           phone: l.pet.client?.phones?.[0]?.phone ?? l.pet.phones?.[0]?.phone,
           legacyId: l.pet.client?.legacyId ?? null,
           person: {
@@ -145,6 +151,7 @@ export function Calendar() {
         overdue: businessDayKey(r.dueAt) < todayKey,
         ownerName: r.client?.name ?? 'Unknown',
         reminder: r,
+        chip: idChip(r.client?.legacyId, r.pet?.name ?? r.client?.name ?? 'Reminder'),
         phone: r.client?.phones?.[0]?.phone,
         legacyId: r.client?.legacyId ?? null,
         person: {
@@ -247,6 +254,7 @@ export function Calendar() {
         id: a.id,
         dateKey: businessDayKey(a.requestedAt),
         label: `${formatSlotTime(a.requestedAt)} ${a.petName}`,
+        chip: `${formatSlotTime(a.requestedAt)} ${idChip(a.client?.legacyId, a.petName)}`,
         sub: `${a.serviceName} · ${a.ownerName}`,
         status: a.status,
       });
@@ -470,7 +478,7 @@ export function Calendar() {
                                 : 'bg-navy-700 text-white'
                           }`}
                         >
-                          {e.label}
+                          {e.chip}
                         </span>
                       ) : e.kind === 'task' ? (
                         <button
@@ -481,7 +489,7 @@ export function Calendar() {
                             e.overdue ? 'bg-red-100 text-red-700' : 'bg-sky-100 text-sky-700'
                           }`}
                         >
-                          {e.label}
+                          {e.chip}
                         </button>
                       ) : (
                         <Link
@@ -492,7 +500,7 @@ export function Calendar() {
                             e.overdue ? 'bg-red-100 text-red-700' : 'bg-sky-100 text-sky-700'
                           }`}
                         >
-                          {e.label}
+                          {e.chip}
                         </Link>
                       ),
                     )}
@@ -615,6 +623,25 @@ export function Calendar() {
               <div>
                 <p className="text-xs font-medium text-slate-500">Pet</p>
                 <p className="text-navy-950">{viewing.pet?.name ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Client ID</p>
+                <p className="text-navy-950">{viewing.client?.legacyId != null ? `#${viewing.client.legacyId}` : '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Phone</p>
+                {viewing.client?.phones?.length ? (
+                  <div className="flex flex-col">
+                    {/* Tappable, so on a phone the call is one tap from the reminder. */}
+                    {viewing.client.phones.map((p) => (
+                      <a key={p.phone} href={`tel:${p.phone}`} className="inline-flex items-center gap-1 text-navy-700 hover:underline">
+                        <Phone size={12} /> {p.phone}
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-navy-950">—</p>
+                )}
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500">Due</p>
