@@ -295,10 +295,10 @@ function StayModal({ editing, onClose }: { editing: BoardingStay | null; onClose
           </Select>
           <p className="mt-1 text-xs text-slate-400">
             {paidAmount > (editing?.paidAmount ?? 0)
-              ? `The ${formatCurrency(paidAmount - (editing?.paidAmount ?? 0))} paid now counts as income today, under this method.`
+              ? `The ${formatCurrency(paidAmount - (editing?.paidAmount ?? 0))} paid now is recorded as a sale on the Transactions page, under this method.`
               : paidAmount < (editing?.paidAmount ?? 0)
-                ? `The ${formatCurrency((editing?.paidAmount ?? 0) - paidAmount)} reduction comes off income today.`
-                : 'Money paid on a stay counts as income on the day it’s entered.'}
+                ? 'Money already paid can’t be lowered here. Ask the admin to delete that boarding sale on the Transactions page.'
+                : 'Whatever is paid is recorded as a sale on the Transactions page.'}
           </p>
         </div>
         {total && (

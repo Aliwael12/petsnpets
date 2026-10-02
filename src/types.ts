@@ -310,6 +310,8 @@ export interface Transaction {
   soldByEmployee?: { id: string; name: string };
   client?: { id: string; name: string; legacyId?: number | null };
   discount?: { id: string; kind: DiscountKind; value: number; note?: string | null } | null;
+  /** Set on sales rung up automatically for money paid on a boarding stay. */
+  boardingId?: string | null;
 }
 
 export interface RefundItem {

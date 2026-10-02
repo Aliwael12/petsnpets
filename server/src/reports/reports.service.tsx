@@ -17,7 +17,6 @@ import type { Database } from '../db/db.types';
 import {
   appointments,
   auditLog,
-  boardingPayments,
   boardings,
   clients,
   discounts,
@@ -331,13 +330,7 @@ export class ReportsService {
     // ---- Money, computed from exactly the rows listed below so every total reconciles. ----
     const salesGross = sum(sales.map((t) => t.total));
     const refundsTotal = sum(refundRows.map((r) => r.total));
-    // Money taken on boarding stays this month is income too, dated when it was paid.
-    const boardingPaymentRows = await this.db
-      .select({ amount: boardingPayments.amount, method: boardingPayments.method })
-      .from(boardingPayments)
-      .where(inMonth(boardingPayments.paidAt));
-    const boardingIncome = sum(boardingPaymentRows.map((p) => p.amount));
-    const income = salesGross + boardingIncome - refundsTotal;
+    const income = salesGross - refundsTotal;
     const stockCost = sum(orders.map((o) => o.costTotal));
     const liveExpenses = expenseRows.filter((e) => !e.voidedAt);
     const operating = sum(liveExpenses.map((e) => e.amount));
@@ -364,7 +357,6 @@ export class ReportsService {
         ...(t.total > recorded ? [{ method: null, amount: t.total - recorded }] : []),
       ];
     });
-    const boardingM = boardingPaymentRows.map((p) => ({ method: p.method as Method | null, amount: p.amount }));
     const refundM = refundRows.map((r) => ({
       method: r.paymentMethod,
       amount: r.total,
@@ -397,11 +389,10 @@ export class ReportsService {
     const breakdown: ReportTable = {
       title: 'Money in / out by payment method',
       hideCount: true,
-      note: `Net income is sales plus boarding payments minus refunds${reallocated ? ', plus the admin\u2019s reallocation between methods (which never changes the total)' : ''}. Stock is the cost of shipments received this month; supplier payments are what was actually paid toward supplier balances.`,
+      note: `Net income is sales (boarding payments included) minus refunds${reallocated ? ', plus the admin\u2019s reallocation between methods (which never changes the total)' : ''}. Stock is the cost of shipments received this month; supplier payments are what was actually paid toward supplier balances.`,
       columns: [
         { label: 'Method', flex: 2 },
         { label: 'Sales', flex: 1.5, align: 'right' },
-        { label: 'Boarding', flex: 1.5, align: 'right' },
         { label: 'Refunds', flex: 1.5, align: 'right' },
         ...(reallocated ? [{ label: 'Reallocated', flex: 1.5, align: 'right' as const }] : []),
         { label: 'Net income', flex: 1.5, align: 'right' },
@@ -413,10 +404,9 @@ export class ReportsService {
         cells: [
           methodLabel(m),
           egp(byMethod(saleM, m)),
-          egp(byMethod(boardingM, m)),
           egp(byMethod(refundM, m)),
           ...(reallocated ? [signed(shift(m))] : []),
-          egp(byMethod(saleM, m) + byMethod(boardingM, m) - byMethod(refundM, m) + shift(m)),
+          egp(byMethod(saleM, m) - byMethod(refundM, m) + shift(m)),
           egp(byMethod(orderM, m)),
           egp(byMethod(expenseM, m)),
           egp(byMethod(paymentM, m)),
@@ -425,7 +415,6 @@ export class ReportsService {
       totals: [
         'Total',
         egp(salesGross),
-        egp(boardingIncome),
         egp(refundsTotal),
         ...(reallocated ? ['—'] : []),
         egp(income),
@@ -810,7 +799,7 @@ export class ReportsService {
         {
           label: 'Income (after refunds)',
           value: egp(income),
-          hint: `${sales.length} sale${sales.length === 1 ? '' : 's'} · ${egp(boardingIncome)} boarding · ${egp(refundsTotal)} refunded`,
+          hint: `${sales.length} sale${sales.length === 1 ? '' : 's'} · ${egp(refundsTotal)} refunded`,
         },
         {
           label: 'Expenses',

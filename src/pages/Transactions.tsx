@@ -182,7 +182,7 @@ function EditSaleModal({ sale, isAdmin, onClose }: { sale: Transaction; isAdmin:
             {!clientId && <p className="mt-1 text-xs text-slate-400">No customer picked — the sale is saved as a walk-in.</p>}
           </>
         )}
-        {isAdmin && (
+        {isAdmin && !sale.boardingId && (
           <>
             <label className="mt-3 block text-xs font-medium text-slate-500" htmlFor="sale-discount">
               Discount

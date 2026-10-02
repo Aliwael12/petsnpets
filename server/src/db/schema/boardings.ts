@@ -8,8 +8,9 @@ import { employees } from './employees';
  * A pet staying at the clinic. What's still owed is always `totalAmount - paidAmount`,
  * never stored, so the two can't drift apart.
  *
- * Not a sale, but its money is income: every change to `paidAmount` is also written to
- * boarding_payments (dated, with a method), and that is what the income figures add up.
+ * Not a sale itself, but its money is: every time `paidAmount` goes up, a sale for the
+ * difference is rung up automatically (a "Boarding" line, linked back via
+ * transactions.boarding_id), so it shows on Transactions and counts as income.
  */
 export const boardings = pgTable(
   'boardings',

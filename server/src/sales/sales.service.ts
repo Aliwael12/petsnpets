@@ -5,6 +5,7 @@ import { DB } from '../db/db.constants';
 import { toDayRange, tsInRange } from '../common/date-range';
 import type { Database } from '../db/db.types';
 import {
+  boardings,
   clients,
   discounts,
   employees,
@@ -24,6 +25,9 @@ import { InventoryService } from '../inventory/inventory.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import type { Actor } from '../auth/auth.types';
 import type { CreateSaleDto, ListSalesQueryDto, PaymentLine, UpdateSaleDto } from './dto/sale.dto';
+
+/** The hidden service product every boarding payment is rung up as (seeded by migration). */
+export const BOARDING_SKU = 'BOARDING';
 
 /** What an unlinked sale is billed to, on the invoice and in every list. */
 const WALK_IN_CUSTOMER_NAME = 'Walk-in customer';
@@ -243,6 +247,9 @@ export class SalesService {
         : [];
 
       const discountChanging = dto.discountId !== undefined && dto.discountId !== before.discountId;
+      if (discountChanging && before.boardingId) {
+        throw new ValidationAppError('A boarding payment can\u2019t take a discount. Lower the stay\u2019s total on the Boarding page instead.');
+      }
       if (discountChanging) {
         // Changes what the customer was charged, so it stays with the owner.
         if (actor.role !== 'admin') throw new ForbiddenAppError('Only an admin can change the discount on a sale.');
@@ -393,6 +400,13 @@ export class SalesService {
       if (txn.discountId) {
         await tx.update(discounts).set({ usedInTransactionId: null }).where(eq(discounts.id, txn.discountId));
       }
+      if (txn.boardingId) {
+        // The money this sale recorded is no longer paid on the stay.
+        await tx
+          .update(boardings)
+          .set({ paidAmount: rawSql`greatest(${boardings.paidAmount} - ${txn.total}, 0)`, updatedAt: new Date() })
+          .where(eq(boardings.id, txn.boardingId));
+      }
       await tx.delete(transactions).where(eq(transactions.id, id)); // items and payments cascade
 
       await this.audit.log(tx, {
@@ -411,6 +425,50 @@ export class SalesService {
         },
       });
     });
+  }
+
+  /**
+   * Rings up money paid on a boarding stay as an ordinary sale: one "Boarding" line at the
+   * amount paid, for the stay's client, sold by whoever entered it, paid by `method` (or
+   * not recorded). Runs inside the boarding's own transaction so the stay and its sale
+   * commit together.
+   */
+  async recordBoardingPayment(
+    tx: Database,
+    p: { boardingId: string; clientId: string; amount: number; method?: PaymentLine['method']; actor: Actor },
+  ) {
+    const [product] = await tx.select({ id: products.id }).from(products).where(eq(products.sku, BOARDING_SKU)).limit(1);
+    if (!product) throw new NotFoundAppError('Product', BOARDING_SKU);
+    const [client] = await tx.select({ name: clients.name }).from(clients).where(eq(clients.id, p.clientId)).limit(1);
+    if (!client) throw new NotFoundAppError('Client', p.clientId);
+
+    const { year, invoiceNo } = await this.nextInvoiceNumber(tx);
+    const [txn] = await tx
+      .insert(transactions)
+      .values({
+        invoiceYear: year,
+        invoiceNo,
+        soldBy: p.actor.id,
+        clientId: p.clientId,
+        customerName: client.name,
+        subtotal: p.amount,
+        total: p.amount,
+        boardingId: p.boardingId,
+      })
+      .returning();
+    await tx.insert(transactionItems).values({ transactionId: txn.id, productId: product.id, quantity: 1, unitPrice: p.amount });
+    const payments = p.method ? [{ method: p.method, amount: p.amount }] : [];
+    if (payments.length > 0) {
+      await tx.insert(transactionPayments).values(payments.map((x) => ({ ...x, transactionId: txn.id })));
+    }
+    await this.audit.log(tx, {
+      actorId: p.actor.id,
+      action: 'sale.create',
+      entityType: 'transaction',
+      entityId: txn.id,
+      after: { ...txn, payments, via: 'boarding' },
+    });
+    return txn;
   }
 
   /** Only a cashier or admin may ring up a sale on someone else's behalf — a doctor or nurse

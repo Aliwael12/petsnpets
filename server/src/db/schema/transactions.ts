@@ -5,6 +5,7 @@ import { clients } from './clients';
 import { employees } from './employees';
 import { products } from './catalog';
 import { discounts } from './discounts';
+import { boardings } from './boardings';
 
 /**
  * All money columns are bigint piastres. `subtotal` is the pre-discount sum of line totals;
@@ -26,6 +27,8 @@ export const transactions = pgTable(
     discountId: uuid('discount_id').references(() => discounts.id, { onDelete: 'set null' }),
     discountAmount: bigint('discount_amount', { mode: 'number' }),
     total: bigint('total', { mode: 'number' }).notNull(),
+    /** Set on the sales rung up automatically for money paid on a boarding stay. */
+    boardingId: uuid('boarding_id').references(() => boardings.id, { onDelete: 'set null' }),
     // How it was paid lives in transaction_payments — one row per method, so a bill can be
     // split (e.g. half cash, half card).
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -33,6 +36,7 @@ export const transactions = pgTable(
   (table) => [
     index('transactions_sold_by_idx').on(table.soldBy),
     index('transactions_client_id_idx').on(table.clientId),
+    index('transactions_boarding_id_idx').on(table.boardingId),
     index('transactions_created_at_idx').on(table.createdAt),
     unique('transactions_invoice_year_no_key').on(table.invoiceYear, table.invoiceNo),
   ],

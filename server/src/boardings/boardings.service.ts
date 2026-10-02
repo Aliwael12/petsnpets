@@ -2,7 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { desc, eq } from 'drizzle-orm';
 import { DB } from '../db/db.constants';
 import type { Database } from '../db/db.types';
-import { boardingPayments, boardings, pets } from '../db/schema';
+import { boardings, pets } from '../db/schema';
+import { SalesService } from '../sales/sales.service';
 import { NotFoundAppError, ValidationAppError } from '../common/errors/app-error';
 import { AuditService } from '../common/audit/audit.service';
 import type { Actor } from '../auth/auth.types';
@@ -13,6 +14,7 @@ export class BoardingsService {
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly audit: AuditService,
+    private readonly sales: SalesService,
   ) {}
 
   list() {
@@ -40,7 +42,7 @@ export class BoardingsService {
         .values({ ...fields, createdBy: actor.id })
         .returning();
       if (row.paidAmount > 0) {
-        await tx.insert(boardingPayments).values({ boardingId: row.id, amount: row.paidAmount, method: paymentMethod ?? null, loggedBy: actor.id });
+        await this.sales.recordBoardingPayment(tx, { boardingId: row.id, clientId: row.clientId, amount: row.paidAmount, method: paymentMethod, actor });
       }
 
       await this.audit.log(tx, { actorId: actor.id, action: 'boarding.create', entityType: 'boarding', entityId: row.id, after: row });
@@ -65,22 +67,17 @@ export class BoardingsService {
         .where(eq(boardings.id, id))
         .returning();
 
-      // The difference in what's been paid is income (or, if it went down, money given back
-      // or a correction) on today's date. A decrease with no method named comes off the
-      // method of the stay's latest payment, so the correction lands where the money was.
+      // Every increase in what's been paid is rung up as a sale for the difference. It can't
+      // go down here: that money is already a sale. The admin deletes that sale instead,
+      // which takes the stay's paid amount down with it.
       const delta = after.paidAmount - before.paidAmount;
-      if (delta !== 0) {
-        let method = paymentMethod ?? null;
-        if (!method && delta < 0) {
-          const [last] = await tx
-            .select({ method: boardingPayments.method })
-            .from(boardingPayments)
-            .where(eq(boardingPayments.boardingId, id))
-            .orderBy(desc(boardingPayments.paidAt))
-            .limit(1);
-          method = last?.method ?? null;
-        }
-        await tx.insert(boardingPayments).values({ boardingId: id, amount: delta, method, loggedBy: actor.id });
+      if (delta < 0) {
+        throw new ValidationAppError(
+          'Money already paid on a stay is recorded as a sale, so it can\u2019t be lowered here. Ask the admin to delete that boarding sale on the Transactions page; the stay\u2019s paid amount goes down with it.',
+        );
+      }
+      if (delta > 0) {
+        await this.sales.recordBoardingPayment(tx, { boardingId: id, clientId: after.clientId, amount: delta, method: paymentMethod, actor });
       }
 
       await this.audit.log(tx, { actorId: actor.id, action: 'boarding.update', entityType: 'boarding', entityId: id, before, after });

@@ -413,7 +413,7 @@ export class AnalyticsService {
 
     const rows = await this.db.execute<{
       win: 'range' | 'month' | 'all';
-      stream: 'sales' | 'boarding' | 'refunds' | 'stock' | 'operating';
+      stream: 'sales' | 'refunds' | 'stock' | 'operating';
       method: string | null;
       amount: string | number;
     }>(rawSql`
@@ -426,9 +426,7 @@ export class AnalyticsService {
       )
       -- the selected range
       ${this.salesByMethod('range', rawSql`true ${this.ts(rawSql`t.created_at`, range)}`)}
-      union all
-      select 'range', 'boarding', bp.method::text, sum(bp.amount)::bigint
-        from boarding_payments bp where true ${this.ts(rawSql`bp.paid_at`, range)} group by bp.method
+
       union all
       select 'range', 'refunds', r.payment_method::text, sum(r.total)::bigint
         from refunds r where true ${this.ts(rawSql`r.created_at`, range)} group by r.payment_method
@@ -441,9 +439,7 @@ export class AnalyticsService {
       union all
       -- the calendar month, exactly as before
       ${this.salesByMethod('month', rawSql`t.created_at >= b.ts_start and t.created_at < b.ts_end`)}
-      union all
-      select 'month', 'boarding', bp.method::text, sum(bp.amount)::bigint
-        from boarding_payments bp, b where bp.paid_at >= b.ts_start and bp.paid_at < b.ts_end group by bp.method
+
       union all
       select 'month', 'refunds', r.payment_method::text, sum(r.total)::bigint
         from refunds r, b where r.created_at >= b.ts_start and r.created_at < b.ts_end group by r.payment_method
@@ -457,8 +453,7 @@ export class AnalyticsService {
       union all
       -- all time. NEVER range-filtered: it is the figure the range is judged against.
       ${this.salesByMethod('all', rawSql`true`)}
-      union all
-      select 'all', 'boarding', bp.method::text, sum(bp.amount)::bigint from boarding_payments bp group by bp.method
+
       union all
       select 'all', 'refunds', r.payment_method::text, sum(r.total)::bigint from refunds r group by r.payment_method
       union all
@@ -562,8 +557,6 @@ export class AnalyticsService {
 
       switch (row.stream) {
         case 'sales':
-        case 'boarding':
-          // Boarding payments are income just like a sale: same gross, same method split.
           gross += amount;
           incomeByMethod[bucket] += amount;
           break;

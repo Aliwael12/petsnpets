@@ -24,7 +24,8 @@ export function useCreateBoarding() {
     mutationFn: (input: CreateBoardingInput) => api.post<Boarding>('/boardings', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['boardings'] });
-      // Money paid on a stay is income, so the money figures move too.
+      // Money paid on a stay is rung up as a sale, so sales and the money figures move too.
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
   });
@@ -38,7 +39,8 @@ export function useUpdateBoarding() {
     mutationFn: ({ id, patch }: { id: string; patch: UpdateBoardingInput }) => api.patch<Boarding>(`/boardings/${id}`, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['boardings'] });
-      // Money paid on a stay is income, so the money figures move too.
+      // Money paid on a stay is rung up as a sale, so sales and the money figures move too.
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
   });

@@ -16,7 +16,6 @@ export * from './invoice-counters';
 export * from './transactions';
 export * from './refunds';
 export * from './discounts';
-export * from './boarding-payments';
 export * from './income-reallocations';
 export * from './idempotency';
 export * from './audit-log';
