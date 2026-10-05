@@ -306,6 +306,8 @@ export interface Transaction {
   discountId?: string | null;
   discountAmount?: number | null; // piastres
   total: number; // piastres
+  /** The card processor's 1.2% on this sale's Visa / Card payments. Income counts total − cardFee. */
+  cardFee?: number;
   /** One line per method — more than one when the bill was split. */
   payments: PaymentLine[];
   createdAt: string;
@@ -470,7 +472,7 @@ export interface FinancialWindow {
     /** The admin's reallocation already included in byMethod (sums to zero), or null. */
     reallocated?: MethodBreakdown | null;
   };
-  expenses: { stock: number; operating: number; total: number; byMethod: MethodBreakdown };
+  expenses: { stock: number; operating: number; total: number; byMethod: MethodBreakdown; operatingByMethod: MethodBreakdown };
   net: number;
 }
 

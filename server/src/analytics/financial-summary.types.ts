@@ -36,6 +36,8 @@ export interface FinancialWindow {
     total: number;
     /** Sums exactly to `total`. */
     byMethod: MethodBreakdown;
+    /** Running costs alone (no stock) per method — sums exactly to `operating`. */
+    operatingByMethod: MethodBreakdown;
   };
   /** income.net - expenses.total. */
   net: number;

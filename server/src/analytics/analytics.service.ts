@@ -145,7 +145,7 @@ export class AnalyticsService {
         from unit, generate_series(unit.d_from, unit.d_to, interval '1 day') as g(d)
       ),
       tx as (
-        select (t.created_at at time zone ${this.tz})::date as d, sum(t.total)::bigint as amt
+        select (t.created_at at time zone ${this.tz})::date as d, sum(t.total - t.card_fee)::bigint as amt
         from transactions t, unit
         where t.created_at >= (unit.d_from::timestamp at time zone ${this.tz})
           and t.created_at <  ((unit.d_to + 1)::timestamp at time zone ${this.tz})
@@ -231,7 +231,7 @@ export class AnalyticsService {
     const rows = await this.db.execute<{ id: string; name: string; revenue: string | number }>(rawSql`
       select e.id, e.name, sum(x.amt)::bigint as revenue
       from (
-        select t.sold_by as employee_id, t.total as amt
+        select t.sold_by as employee_id, t.total - t.card_fee as amt
         from transactions t
         where true ${this.ts(rawSql`t.created_at`, range)}
         union all
@@ -289,7 +289,10 @@ export class AnalyticsService {
    */
   private netLines(range: DayRange, scopeToEmployeeId: string | null): SQL {
     return rawSql`(
-      select ti.product_id, ti.quantity as qty, (ti.quantity * ti.unit_price)::bigint as amt
+      -- A sale's card fee is spread across its lines in proportion, so per-product figures add
+      -- up to the same after-fee income as everything else.
+      select ti.product_id, ti.quantity as qty,
+             round(ti.quantity * ti.unit_price * (1 - coalesce(t.card_fee::numeric / nullif(t.total, 0), 0)))::bigint as amt
       from transaction_items ti
       join transactions t on t.id = ti.transaction_id
       where true ${this.ts(rawSql`t.created_at`, range)}${this.scoped(rawSql`t.sold_by`, scopeToEmployeeId)}
@@ -350,7 +353,7 @@ export class AnalyticsService {
         .where(and(eq(discounts.createdBy, employeeId), ...inTs(discounts.createdAt))),
     ]);
 
-    const salesRevenue = sales.reduce((sum, t) => sum + t.total, 0);
+    const salesRevenue = sales.reduce((sum, t) => sum + t.total - t.cardFee, 0);
     const refundsAmount = refundRows.reduce((sum, r) => sum + r.total, 0);
     const ordersCost = supplierOrderRows.reduce((sum, o) => sum + o.costTotal, 0);
 
@@ -541,6 +544,7 @@ export class AnalyticsService {
   ): FinancialWindow {
     const incomeByMethod = emptyBreakdown();
     const expensesByMethod = emptyBreakdown();
+    const operatingByMethod = emptyBreakdown();
     let gross = 0;
     let refunded = 0;
     let stock = 0;
@@ -573,6 +577,7 @@ export class AnalyticsService {
         case 'operating':
           operating += amount;
           expensesByMethod[bucket] += amount;
+          operatingByMethod[bucket] += amount;
           break;
       }
     }
@@ -581,7 +586,7 @@ export class AnalyticsService {
     const totalExpenses = stock + operating;
     return {
       income: { gross, refunds: refunded, net: netIncome, byMethod: incomeByMethod, reallocated: null },
-      expenses: { stock, operating, total: totalExpenses, byMethod: expensesByMethod },
+      expenses: { stock, operating, total: totalExpenses, byMethod: expensesByMethod, operatingByMethod },
       net: netIncome - totalExpenses,
     };
   }
@@ -595,7 +600,7 @@ export class AnalyticsService {
     return rawSql`
       select ${rawSql.raw(`'${win}'`)} as win, 'sales' as stream, s.method, sum(s.amount)::bigint as amount
       from (
-        select p.method::text as method, p.amount
+        select p.method::text as method, p.amount - p.fee as amount
           from transactions t join transaction_payments p on p.transaction_id = t.id, b
           where ${where}
         union all

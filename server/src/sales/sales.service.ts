@@ -36,6 +36,25 @@ const WALK_IN_CUSTOMER_NAME = 'Walk-in customer';
 
 const PAYMENT_COLUMNS = { columns: { method: true, amount: true } } as const;
 
+/** The card processor keeps 1.2% of every Visa / Card payment, in basis points. */
+export const CARD_FEE_BPS = 120;
+
+const cardFeeOf = (line: PaymentLine) => (line.method === 'card' ? Math.round((line.amount * CARD_FEE_BPS) / 10_000) : 0);
+
+/**
+ * Replaces a sale's payment rows with `lines`, stamping each with its card fee, and keeps
+ * transactions.card_fee equal to their sum. The one place payment rows are written, so the
+ * fee can't be forgotten on any path (checkout, edit, boarding).
+ */
+async function writePayments(tx: Database, transactionId: string, lines: PaymentLine[]) {
+  await tx.delete(transactionPayments).where(eq(transactionPayments.transactionId, transactionId));
+  if (lines.length > 0) {
+    await tx.insert(transactionPayments).values(lines.map((l) => ({ ...l, fee: cardFeeOf(l), transactionId })));
+  }
+  const cardFee = lines.reduce((sum, l) => sum + cardFeeOf(l), 0);
+  await tx.update(transactions).set({ cardFee }).where(eq(transactions.id, transactionId));
+}
+
 const egpLabel = (piastres: number) => `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
 /** What every sale list and read returns alongside the sale itself. */
@@ -187,9 +206,7 @@ export class SalesService {
         })
         .returning();
 
-      if (payments.length > 0) {
-        await tx.insert(transactionPayments).values(payments.map((p) => ({ ...p, transactionId: txn.id })));
-      }
+      await writePayments(tx, txn.id, payments);
 
       await tx.insert(transactionItems).values(
         dto.items.map((line) => ({
@@ -335,12 +352,7 @@ export class SalesService {
       } else if (total !== before.total && beforePayments.length > 1) {
         throw new ValidationAppError(`This sale was split between methods — adjust the split to the new total of ${egpLabel(total)}.`);
       }
-      if (payments !== beforePayments) {
-        await tx.delete(transactionPayments).where(eq(transactionPayments.transactionId, id));
-        if (payments.length > 0) {
-          await tx.insert(transactionPayments).values(payments.map((p) => ({ ...p, transactionId: id })));
-        }
-      }
+      if (payments !== beforePayments) await writePayments(tx, id, payments);
 
       const discountLabel = (d: typeof finalDiscount) =>
         d ? `${d.kind === 'percent' ? `${d.value}%` : egpLabel(d.value)} off${d.note ? ` (${d.note})` : ''}` : null;
@@ -464,9 +476,7 @@ export class SalesService {
       .returning();
     await tx.insert(transactionItems).values({ transactionId: txn.id, productId: product.id, quantity: 1, unitPrice: p.amount });
     const payments = p.method ? [{ method: p.method, amount: p.amount }] : [];
-    if (payments.length > 0) {
-      await tx.insert(transactionPayments).values(payments.map((x) => ({ ...x, transactionId: txn.id })));
-    }
+    await writePayments(tx, txn.id, payments);
     await this.audit.log(tx, {
       actorId: p.actor.id,
       action: 'sale.create',

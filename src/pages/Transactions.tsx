@@ -296,7 +296,10 @@ export function Transactions() {
       methodFilter === 'all' ? true : methodFilter === 'unrecorded' ? t.payments.length === 0 : t.payments.some((p) => p.method === methodFilter),
     );
 
-  const total = filtered.reduce((sum, t) => sum + t.total, 0);
+  // Rows show what each customer paid; the total is what the clinic keeps, after the card
+  // processor's 1.2% on Visa / Card payments — the same figure income and analytics use.
+  const cardFees = filtered.reduce((sum, t) => sum + (t.cardFee ?? 0), 0);
+  const total = filtered.reduce((sum, t) => sum + t.total, 0) - cardFees;
 
   const downloadInvoice = async (transactionId: string) => {
     setInvoicePending(transactionId);
@@ -313,7 +316,7 @@ export function Transactions() {
     <div className="flex flex-col gap-5">
       <div>
         <h1 className="text-xl font-semibold text-navy-950">Transaction history</h1>
-        <p className="text-sm text-slate-500">{filtered.length} transactions · {formatCurrency(total)} total</p>
+        <p className="text-sm text-slate-500">{filtered.length} transactions · {formatCurrency(total)} total{cardFees > 0 && ` (after ${formatCurrency(cardFees)} card fees)`}</p>
       </div>
 
       <div className="flex flex-wrap gap-3">

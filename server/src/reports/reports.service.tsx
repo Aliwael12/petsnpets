@@ -212,7 +212,7 @@ export class ReportsService {
       orderBy: [asc(transactions.createdAt)],
       with: {
         items: { with: { product: { columns: { name: true } } } },
-        payments: { columns: { method: true, amount: true } },
+        payments: { columns: { method: true, amount: true, fee: true } },
       },
     });
     const refundRows = await this.db.query.refunds.findMany({
@@ -331,7 +331,9 @@ export class ReportsService {
     const petName = new Map(auditPets.map((p) => [p.id, p.name]));
 
     // ---- Money, computed from exactly the rows listed below so every total reconciles. ----
-    const salesGross = sum(sales.map((t) => t.total));
+    // What the clinic keeps: Visa sales count after the card processor's fee.
+    const cardFees = sum(sales.map((t) => t.cardFee));
+    const salesGross = sum(sales.map((t) => t.total)) - cardFees;
     const refundsTotal = sum(refundRows.map((r) => r.total));
     const income = salesGross - refundsTotal;
     const stockCost = sum(orders.map((o) => o.costTotal));
@@ -356,7 +358,7 @@ export class ReportsService {
     const saleM = sales.flatMap((t) => {
       const recorded = sum(t.payments.map((p) => p.amount));
       return [
-        ...t.payments.map((p) => ({ method: p.method as Method | null, amount: p.amount })),
+        ...t.payments.map((p) => ({ method: p.method as Method | null, amount: p.amount - p.fee })),
         ...(t.total > recorded ? [{ method: null, amount: t.total - recorded }] : []),
       ];
     });
@@ -392,7 +394,7 @@ export class ReportsService {
     const breakdown: ReportTable = {
       title: 'Money in / out by payment method',
       hideCount: true,
-      note: `Net income is sales (boarding payments included) minus refunds${reallocated ? ', plus the admin\u2019s reallocation between methods (which never changes the total)' : ''}. Stock is the cost of shipments received this month; supplier payments are what was actually paid toward supplier balances.`,
+      note: `Net income is sales (boarding payments included, Visa / Card after the 1.2% card fee) minus refunds${reallocated ? ', plus the admin\u2019s reallocation between methods (which never changes the total)' : ''}. Stock is the cost of shipments received this month; supplier payments are what was actually paid toward supplier balances.`,
       columns: [
         { label: 'Method', flex: 2 },
         { label: 'Sales', flex: 1.5, align: 'right' },
@@ -458,7 +460,7 @@ export class ReportsService {
             who(t.soldBy),
           ],
         })),
-        totals: ['', '', '', '', '', egp(discountsGiven), egp(salesGross), ''],
+        totals: ['', '', '', '', '', egp(discountsGiven), egp(salesGross + cardFees), ''],
         empty: 'No sales this month.',
       },
       {
@@ -802,7 +804,7 @@ export class ReportsService {
         {
           label: 'Income (after refunds)',
           value: egp(income),
-          hint: `${sales.length} sale${sales.length === 1 ? '' : 's'} · ${egp(refundsTotal)} refunded`,
+          hint: `${sales.length} sale${sales.length === 1 ? '' : 's'} · ${egp(refundsTotal)} refunded${cardFees ? ` · ${egp(cardFees)} card fees` : ''}`,
         },
         {
           label: 'Expenses',

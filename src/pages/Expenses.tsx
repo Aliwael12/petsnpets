@@ -218,13 +218,13 @@ export function Expenses() {
           />
         </div>
         {!periodSummary ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {[0, 1].map((i) => (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
               <div key={i} className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <StatTile
               label={incomePeriod === 'daily' ? 'Income today' : 'Income this month'}
               value={formatCurrency(periodSummary.range.income.net)}
@@ -243,6 +243,40 @@ export function Expenses() {
               value={formatCurrency(periodSummary.range.income.net - periodSummary.range.expenses.operating)}
               tone={periodSummary.range.income.net - periodSummary.range.expenses.operating < 0 ? 'warn' : 'gold'}
               hint={`${formatCurrency(periodSummary.range.income.net)} income − ${formatCurrency(periodSummary.range.expenses.operating)} running costs`}
+            />
+            <StatTile
+              label="By payment method"
+              value={formatCurrency(periodSummary.range.income.net - periodSummary.range.expenses.operating)}
+              hint="Each method's income minus the running costs paid that way"
+              footer={
+                <dl className="mt-3 flex flex-col gap-1.5 border-t border-black/5 pt-3 text-xs">
+                  {(['cash', 'card', 'instapay', 'vodafone_cash', 'unrecorded'] as const)
+                    .filter(
+                      (m) =>
+                        m !== 'unrecorded' ||
+                        periodSummary.range.income.byMethod.unrecorded !== 0 ||
+                        periodSummary.range.expenses.operatingByMethod.unrecorded !== 0,
+                    )
+                    .map((m) => {
+                      const income = periodSummary.range.income.byMethod[m];
+                      const costs = periodSummary.range.expenses.operatingByMethod[m];
+                      const left = income - costs;
+                      return (
+                        <div key={m} className="flex items-baseline justify-between gap-3">
+                          <dt className="text-slate-500">{PAYMENT_METHOD_LABELS[m]}</dt>
+                          <dd className="text-right tabular-nums">
+                            {costs !== 0 && (
+                              <span className="text-slate-400">
+                                {formatCurrency(income)} − {formatCurrency(costs)} ={' '}
+                              </span>
+                            )}
+                            <span className={`font-medium ${left < 0 ? 'text-red-600' : 'text-slate-700'}`}>{formatCurrency(left)}</span>
+                          </dd>
+                        </div>
+                      );
+                    })}
+                </dl>
+              }
             />
           </div>
         )}

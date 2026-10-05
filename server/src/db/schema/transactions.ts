@@ -27,6 +27,11 @@ export const transactions = pgTable(
     discountId: uuid('discount_id').references(() => discounts.id, { onDelete: 'set null' }),
     discountAmount: bigint('discount_amount', { mode: 'number' }),
     total: bigint('total', { mode: 'number' }).notNull(),
+    /** The card processor's cut on this sale's Visa / Card payments (sum of their `fee`).
+     *  The customer is charged `total`; income and every money report count
+     *  `total - cardFee`. Stored, not derived from a rate, so changing the rate later never
+     *  rewrites past figures. */
+    cardFee: bigint('card_fee', { mode: 'number' }).notNull().default(0),
     /** Set on the sales rung up automatically for money paid on a boarding stay. */
     boardingId: uuid('boarding_id').references(() => boardings.id, { onDelete: 'set null' }),
     // How it was paid lives in transaction_payments — one row per method, so a bill can be
@@ -77,6 +82,8 @@ export const transactionPayments = pgTable(
       .references(() => transactions.id, { onDelete: 'cascade' }),
     method: paymentMethodEnum('method').notNull(),
     amount: bigint('amount', { mode: 'number' }).notNull(),
+    /** Card processing fee on this line (CARD_FEE_BPS of a card payment, else 0). */
+    fee: bigint('fee', { mode: 'number' }).notNull().default(0),
   },
   (table) => [
     index('transaction_payments_transaction_id_idx').on(table.transactionId),
