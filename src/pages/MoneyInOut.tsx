@@ -48,6 +48,7 @@ import {
 } from 'recharts';
 import { FileText, Loader2, Plus, Trash2 } from 'lucide-react';
 import { ConfirmDelete } from '../components/ConfirmDelete';
+import { ProductPicker } from '../components/ProductPicker';
 import { PAYMENT_METHOD_LABELS, EXPENSE_CATEGORY_LABELS, type PaymentMethod, type SupplierOrder, type SupplierPayment } from '../types';
 
 const emptyOrderForm = {
@@ -698,14 +699,7 @@ export function MoneyInOut() {
                   </div>
                 </div>
               ) : (
-                <Select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value })}>
-                  <option value="">Select product</option>
-                  {orderableProducts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.brand ? `${p.brand} · ${p.name}` : p.name}
-                    </option>
-                  ))}
-                </Select>
+                <ProductPicker products={orderableProducts} value={form.productId} onChange={(productId) => setForm({ ...form, productId })} />
               )}
             </div>
 
