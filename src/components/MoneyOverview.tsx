@@ -301,7 +301,7 @@ export function MoneyOverview() {
                     className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-navy-700 hover:bg-black/5"
                     title="Move this month's income between payment methods"
                   >
-                    <ArrowLeftRight size={12} /> Move money
+                    <ArrowLeftRight size={12} /> Reallocation
                   </button>
                 ) : undefined
               }
