@@ -49,6 +49,26 @@ function startOfThisMonth(): string {
   return `${today().slice(0, 7)}-01`;
 }
 
+const BREAKDOWN_METHODS = ['cash', 'card', 'instapay', 'vodafone_cash'] as const;
+
+/** One line per payment method under a card's figure. `dark` is for the navy (gold-tone) card.
+ *  "Not recorded" only shows when it isn't zero. */
+function MethodRows({ values, dark = false }: { values: Record<PaymentMethod | 'unrecorded', number>; dark?: boolean }) {
+  const methods = [...BREAKDOWN_METHODS, ...(values.unrecorded !== 0 ? (['unrecorded'] as const) : [])];
+  return (
+    <dl className={`mt-3 flex flex-col gap-1 border-t pt-3 text-xs ${dark ? 'border-white/15' : 'border-black/5'}`}>
+      {methods.map((m) => (
+        <div key={m} className="flex items-baseline justify-between gap-3">
+          <dt className={dark ? 'text-navy-100' : 'text-slate-500'}>{PAYMENT_METHOD_LABELS[m]}</dt>
+          <dd className={`font-medium tabular-nums ${values[m] < 0 ? (dark ? 'text-red-300' : 'text-red-600') : dark ? 'text-white' : 'text-slate-700'}`}>
+            {formatCurrency(values[m])}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function Expenses() {
   const [range, setRange] = useState<Range>('this-month');
   const [categoryFilter, setCategoryFilter] = useState<ExpenseCategory | 'all'>('all');
@@ -234,6 +254,7 @@ export function Expenses() {
                   ? `${formatCurrency(periodSummary.range.income.gross)} sales − ${formatCurrency(periodSummary.range.income.refunds)} refunded`
                   : `${formatCurrency(periodSummary.range.income.gross)} in sales`
               }
+              footer={<MethodRows values={periodSummary.range.income.byMethod} />}
             />
             <StatTile
               label={incomePeriod === 'daily' ? 'Net today' : 'Net this month'}
@@ -243,6 +264,19 @@ export function Expenses() {
               value={formatCurrency(periodSummary.range.income.net - periodSummary.range.expenses.operating)}
               tone={periodSummary.range.income.net - periodSummary.range.expenses.operating < 0 ? 'warn' : 'gold'}
               hint={`${formatCurrency(periodSummary.range.income.net)} income − ${formatCurrency(periodSummary.range.expenses.operating)} running costs`}
+              footer={
+                <MethodRows
+                  dark={periodSummary.range.income.net - periodSummary.range.expenses.operating >= 0}
+                  values={
+                    Object.fromEntries(
+                      ([...BREAKDOWN_METHODS, 'unrecorded'] as const).map((m) => [
+                        m,
+                        periodSummary.range.income.byMethod[m] - periodSummary.range.expenses.operatingByMethod[m],
+                      ]),
+                    ) as Record<PaymentMethod | 'unrecorded', number>
+                  }
+                />
+              }
             />
             <StatTile
               label="By payment method"
