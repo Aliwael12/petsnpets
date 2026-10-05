@@ -480,10 +480,14 @@ export class AnalyticsService {
     // covers the entire month. A partial range (e.g. "today") can't say which days the
     // shifted money came from, so it shows the raw split.
     const reallocations = await this.db.select().from(incomeReallocations);
+    // "This month so far" (the 1st through today) counts as the whole month: nothing can be
+    // recorded after today, so it holds every sale the month has. Without this, the Expenses
+    // tab and Money In / Out's "This month" missed a reallocation the Dashboard showed.
+    const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: this.tz }).format(new Date());
     const covers = (y: number, m: number) => {
       const first = `${y}-${String(m).padStart(2, '0')}-01`;
       const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-      return (range.from === null || range.from <= first) && (range.to === null || range.to >= last);
+      return (range.from === null || range.from <= first) && (range.to === null || range.to >= last || range.to >= todayKey);
     };
     applyReallocations(summary.month, reallocations.filter((r) => r.year === resolvedYear && r.month === resolvedMonth));
     applyReallocations(summary.allTime, reallocations);
