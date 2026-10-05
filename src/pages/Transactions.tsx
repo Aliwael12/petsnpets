@@ -11,7 +11,7 @@ import { Badge, Button, Card, EmployeeTag, EmptyState, Input, Modal, Select, for
 import { PaymentsEditor, draftFromPayments, paymentsFromDraft, type PaymentDraft } from '../components/PaymentsEditor';
 import { ClientPicker } from '../components/ClientPicker';
 import { FileText, Loader2, Pencil, Trash2 } from 'lucide-react';
-import { PAYMENT_METHOD_LABELS, type PaymentLine, type Transaction } from '../types';
+import { PAYMENT_METHOD_LABELS, type PaymentLine, type PaymentMethod, type Transaction } from '../types';
 import { toBusinessDateTimeInput } from '../lib/timezone';
 
 const invoiceLabel = (t: Transaction) => `INV-${t.invoiceYear}-${String(t.invoiceNo).padStart(5, '0')}`;
@@ -275,6 +275,8 @@ export function Transactions() {
   // the first request for a given sale renders the PDF server-side and can take a moment.
   const [invoicePending, setInvoicePending] = useState<string | null>(null);
   const [productFilter, setProductFilter] = useState('all');
+  // A split sale matches every method it was paid with; 'unrecorded' means no method at all.
+  const [methodFilter, setMethodFilter] = useState<'all' | PaymentMethod | 'unrecorded'>('all');
   const [rangeFilter, setRangeFilter] = useState<'all' | '7' | '30'>('all');
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [deleting, setDeleting] = useState<Transaction | null>(null);
@@ -288,7 +290,11 @@ export function Transactions() {
   // Filtering by product is done client-side against the already-fetched list — the API
   // supports it too, but combining it with the other two filters in one round trip isn't
   // worth a second query key for a table this size.
-  const filtered = productFilter === 'all' ? sales : sales.filter((t) => t.items.some((it) => it.productId === productFilter));
+  const filtered = sales
+    .filter((t) => productFilter === 'all' || t.items.some((it) => it.productId === productFilter))
+    .filter((t) =>
+      methodFilter === 'all' ? true : methodFilter === 'unrecorded' ? t.payments.length === 0 : t.payments.some((p) => p.method === methodFilter),
+    );
 
   const total = filtered.reduce((sum, t) => sum + t.total, 0);
 
@@ -324,6 +330,14 @@ export function Transactions() {
           {products.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
+            </option>
+          ))}
+        </Select>
+        <Select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value as typeof methodFilter)} className="w-44" aria-label="Payment method">
+          <option value="all">Any payment</option>
+          {(['cash', 'instapay', 'card', 'vodafone_cash', 'unrecorded'] as const).map((m) => (
+            <option key={m} value={m}>
+              {PAYMENT_METHOD_LABELS[m]}
             </option>
           ))}
         </Select>

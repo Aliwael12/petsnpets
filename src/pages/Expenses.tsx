@@ -88,6 +88,12 @@ export function Expenses() {
   const [voidReason, setVoidReason] = useState('');
 
   const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+  // From the same list as the total, so the lines always add up to it and follow the filters.
+  const byMethod = useMemo(() => {
+    const sums: Record<PaymentMethod, number> = { cash: 0, card: 0, instapay: 0, vodafone_cash: 0 };
+    expenses.forEach((e) => (sums[e.paymentMethod] += e.amount));
+    return sums;
+  }, [expenses]);
 
   // Biggest category first — that's the one the owner is looking for.
   const byCategory = useMemo(() => {
@@ -173,6 +179,16 @@ export function Expenses() {
           value={formatCurrency(total)}
           hint={`${expenses.length} expense${expenses.length === 1 ? '' : 's'}`}
           tone="expense"
+          footer={
+            <dl className="mt-3 flex flex-col gap-1 border-t border-black/5 pt-3 text-xs">
+              {(['cash', 'card', 'instapay', 'vodafone_cash'] as PaymentMethod[]).map((m) => (
+                <div key={m} className="flex items-baseline justify-between gap-3">
+                  <dt className="text-slate-500">{PAYMENT_METHOD_LABELS[m]}</dt>
+                  <dd className="font-medium tabular-nums text-slate-700">{formatCurrency(byMethod[m])}</dd>
+                </div>
+              ))}
+            </dl>
+          }
         />
         <StatTile
           label="Largest category"

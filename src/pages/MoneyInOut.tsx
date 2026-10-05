@@ -408,6 +408,7 @@ export function MoneyInOut() {
                   <th className="px-5 py-3 font-medium">Paid with</th>
                   <th className="px-5 py-3 font-medium">Logged by</th>
                   <th className="px-5 py-3 font-medium">Date</th>
+                  <th className="px-5 py-3 font-medium text-right">Cost per unit</th>
                   <th className="px-5 py-3 font-medium text-right">Amount</th>
                   {isAdmin && <th className="px-5 py-3" />}
                 </tr>
@@ -432,6 +433,7 @@ export function MoneyInOut() {
                           <EmployeeTag name={p.loggedByEmployee?.name ?? 'Unknown'} />
                         </td>
                         <td className="px-5 py-3 text-slate-500">{formatDate(p.paidAt)}</td>
+                        <td className="px-5 py-3 text-right text-slate-300">—</td>
                         <td className="px-5 py-3 text-right font-semibold text-emerald-700">−{formatCurrency(p.amount)}</td>
                         {isAdmin && (
                           <td className="px-5 py-3 text-right">
@@ -485,6 +487,9 @@ export function MoneyInOut() {
                         <EmployeeTag name={o.loggedByEmployee?.name ?? 'Unknown'} />
                       </td>
                       <td className="px-5 py-3 text-slate-500">{formatDate(o.receivedAt)}</td>
+                      <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums text-slate-600">
+                        {o.quantity > 0 ? `EGP ${(o.costTotal / o.quantity / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}` : <span className="text-slate-300">—</span>}
+                      </td>
                       <td className="px-5 py-3 text-right font-semibold text-navy-950">{formatCurrency(o.costTotal)}</td>
                       {isAdmin && (
                         <td className="px-5 py-3 text-right">

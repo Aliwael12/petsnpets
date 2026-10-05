@@ -40,90 +40,129 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
 const money = (piastres: number) => `EGP ${(piastres / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
 /**
- * Admin only: re-split the month's income across payment methods. Only the split changes —
- * the amounts must add up to exactly the month's income — and no sale is touched; the
- * server stores the difference as a correction on top of the recorded payments.
+ * Admin only: move money between payment methods, e.g. take EGP 2,000 off InstaPay and add
+ * it to Cash. Each method shows what it has now, a −/+ toggle and an amount; what's taken
+ * and what's added have to balance, so the month's total never changes. No sale is
+ * touched: the server stores the result as a correction on top of the recorded payments.
  */
 function ReallocateIncomeModal({ window, onClose }: { window: FinancialWindow; onClose: () => void }) {
   const reallocate = useReallocateIncome();
-  const total = window.income.net;
   // "Not recorded" only appears when there's some to move out of it.
   const buckets: PaymentBucket[] = [...INCOME_METHODS, ...(window.income.byMethod.unrecorded !== 0 ? (['unrecorded'] as const) : [])];
-  const [values, setValues] = useState<Record<PaymentBucket, string>>(() => {
-    const start = {} as Record<PaymentBucket, string>;
-    for (const b of [...INCOME_METHODS, 'unrecorded'] as PaymentBucket[]) start[b] = String(window.income.byMethod[b] / 100);
-    return start;
-  });
+  const [changes, setChanges] = useState<Record<string, { sign: 1 | -1; amount: string }>>({});
 
   const toPiastres = (text: string) => {
     const n = Number(text.trim());
-    return text.trim() === '' || !Number.isFinite(n) ? null : Math.round(n * 100);
+    return text.trim() === '' ? 0 : !Number.isFinite(n) || n < 0 ? null : Math.round(n * 100);
   };
-  const parsed = buckets.map((b) => toPiastres(values[b]));
-  const entered = parsed.reduce<number>((sum, v) => sum + (v ?? 0), 0);
-  const remaining = total - entered;
+  const rows = buckets.map((b) => {
+    const change = changes[b] ?? { sign: -1 as const, amount: '' };
+    const amount = toPiastres(change.amount);
+    const delta = amount === null ? 0 : change.sign * amount;
+    const now = window.income.byMethod[b];
+    return { bucket: b, change, amount, delta, now, after: now + delta };
+  });
+  const taken = rows.reduce((sum, r) => sum + (r.delta < 0 ? -r.delta : 0), 0);
+  const added = rows.reduce((sum, r) => sum + (r.delta > 0 ? r.delta : 0), 0);
+  const balanced = taken === added && taken > 0;
+  const setChange = (b: PaymentBucket, patch: Partial<{ sign: 1 | -1; amount: string }>) =>
+    setChanges({ ...changes, [b]: { ...(changes[b] ?? { sign: -1, amount: '' }), ...patch } });
 
   const save = () => {
-    if (parsed.some((v) => v === null || v < 0)) {
-      toast.error('Enter an amount of zero or more for every method');
-      return;
-    }
-    if (remaining !== 0) {
-      toast.error(`The methods must add up to ${money(total)}`);
-      return;
-    }
-    const byMethod = { cash: 0, instapay: 0, card: 0, vodafone_cash: 0, unrecorded: 0 } as MethodBreakdown;
-    buckets.forEach((b, i) => (byMethod[b] = parsed[i]!));
+    if (rows.some((r) => r.amount === null)) return toast.error('Amounts have to be numbers of zero or more');
+    if (rows.some((r) => r.after < 0)) return toast.error('You can’t take more from a method than it has');
+    if (!balanced) return toast.error('What you take and what you add have to be the same amount');
+    const byMethod = { ...window.income.byMethod } as MethodBreakdown;
+    for (const r of rows) byMethod[r.bucket] = r.after;
     reallocate.mutate(
       { year: window.year!, month: window.month!, byMethod },
       {
         onSuccess: () => {
-          toast.success('Income split updated');
+          toast.success(`Moved ${money(taken)} between methods`);
           onClose();
         },
-        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not update the split'),
+        onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not move the money'),
       },
     );
   };
 
   return (
-    <Modal title={`Reallocate ${MONTH_NAMES[(window.month ?? 1) - 1]} income`} onClose={onClose}>
+    <Modal title={`Move ${MONTH_NAMES[(window.month ?? 1) - 1]} income between methods`} onClose={onClose}>
       <div className="flex flex-col gap-3">
         <p className="text-sm text-slate-500">
-          Move money between payment methods. The month&rsquo;s total stays <span className="font-semibold text-navy-950">{money(total)}</span>, and no sale or invoice changes.
+          Next to each method, pick <span className="font-medium text-navy-950">−</span> to take money off it or{' '}
+          <span className="font-medium text-navy-950">+</span> to add money to it. The month&rsquo;s total stays{' '}
+          <span className="font-semibold text-navy-950">{money(window.income.net)}</span>, and no sale or invoice changes.
         </p>
-        <div className="flex flex-col gap-2">
-          {buckets.map((b) => (
-            <label key={b} className="flex items-center justify-between gap-3">
-              <span className="text-sm text-slate-600">{PAYMENT_METHOD_LABELS[b]}</span>
-              <div className="relative w-40">
+        <div className="flex flex-col divide-y divide-slate-100 rounded-lg border border-slate-200">
+          {rows.map((r) => (
+            <div key={r.bucket} className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-navy-950">{PAYMENT_METHOD_LABELS[r.bucket]}</p>
+                <p className="text-xs tabular-nums text-slate-400">
+                  Now {money(r.now)}
+                  {r.delta !== 0 && (
+                    <>
+                      {' '}
+                      → <span className={r.after < 0 ? 'font-medium text-red-600' : 'font-medium text-navy-800'}>{money(r.after)}</span>
+                    </>
+                  )}
+                </p>
+              </div>
+              <div className="flex overflow-hidden rounded-lg border border-slate-300" role="group" aria-label={`Take from or add to ${PAYMENT_METHOD_LABELS[r.bucket]}`}>
+                {([-1, 1] as const).map((sign) => (
+                  <button
+                    key={sign}
+                    type="button"
+                    onClick={() => setChange(r.bucket, { sign })}
+                    className={`w-9 py-1.5 text-base font-semibold ${
+                      r.change.sign === sign ? (sign < 0 ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white') : 'bg-white text-slate-500 hover:bg-slate-50'
+                    }`}
+                    aria-pressed={r.change.sign === sign}
+                    title={sign < 0 ? 'Take money off this method' : 'Add money to this method'}
+                  >
+                    {sign < 0 ? '−' : '+'}
+                  </button>
+                ))}
+              </div>
+              <div className="relative w-32">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">EGP</span>
                 <Input
                   type="number"
                   inputMode="decimal"
                   min="0"
                   step="0.01"
-                  value={values[b]}
-                  onChange={(e) => setValues({ ...values, [b]: e.target.value })}
+                  placeholder="0"
+                  value={r.change.amount}
+                  onChange={(e) => setChange(r.bucket, { amount: e.target.value })}
                   className="pl-11 text-right tabular-nums"
+                  aria-label={`Amount to move for ${PAYMENT_METHOD_LABELS[r.bucket]}`}
                 />
               </div>
-            </label>
+            </div>
           ))}
         </div>
-        <p className={`text-right text-xs tabular-nums ${remaining === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-          {remaining === 0
-            ? `Adds up to ${money(total)}`
-            : remaining > 0
-              ? `${money(remaining)} still to assign`
-              : `${money(-remaining)} over the month’s income`}
-        </p>
+        <div className="flex items-center justify-between text-xs tabular-nums">
+          <span className="text-slate-500">
+            Taking <span className="font-medium text-red-600">{money(taken)}</span> · adding{' '}
+            <span className="font-medium text-emerald-700">{money(added)}</span>
+          </span>
+          <span className={balanced ? 'text-emerald-600' : 'text-amber-600'}>
+            {taken === 0 && added === 0
+              ? 'Nothing moved yet'
+              : balanced
+                ? 'Balanced'
+                : taken > added
+                  ? `Add ${money(taken - added)} more somewhere`
+                  : `Take ${money(added - taken)} more from somewhere`}
+          </span>
+        </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={reallocate.isPending || remaining !== 0}>
-            {reallocate.isPending ? 'Saving…' : 'Save split'}
+          <Button onClick={save} disabled={reallocate.isPending || !balanced}>
+            {reallocate.isPending ? 'Saving…' : 'Move money'}
           </Button>
         </div>
       </div>
@@ -244,7 +283,7 @@ export function MoneyOverview() {
                     className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-navy-700 hover:bg-black/5"
                     title="Move this month's income between payment methods"
                   >
-                    <ArrowLeftRight size={12} /> Reallocate
+                    <ArrowLeftRight size={12} /> Move money
                   </button>
                 ) : undefined
               }
