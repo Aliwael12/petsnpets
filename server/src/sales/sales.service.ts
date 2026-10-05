@@ -328,6 +328,17 @@ export class SalesService {
         await tx.update(transactions).set({ discountId: finalDiscount?.id ?? null, discountAmount, total }).where(eq(transactions.id, id));
       }
 
+      // Who the sale is credited to — it moves the sale between employees' figures, so admin only.
+      let soldByName: string | null = null;
+      if (dto.soldBy !== undefined && dto.soldBy !== before.soldBy) {
+        if (actor.role !== 'admin') throw new ForbiddenAppError('Only an admin can change who made a sale.');
+        const [seller] = await tx.select({ name: employees.name }).from(employees).where(eq(employees.id, dto.soldBy)).limit(1);
+        if (!seller) throw new NotFoundAppError('Employee', dto.soldBy);
+        await tx.update(transactions).set({ soldBy: dto.soldBy }).where(eq(transactions.id, id));
+        soldByName = seller.name;
+      }
+      const [beforeSeller] = await tx.select({ name: employees.name }).from(employees).where(eq(employees.id, before.soldBy)).limit(1);
+
       let occurredAt = before.createdAt;
       if (dto.occurredAt !== undefined) {
         // Converted in Postgres with the clinic's timezone rather than in JS, the same way
@@ -356,9 +367,10 @@ export class SalesService {
 
       const discountLabel = (d: typeof finalDiscount) =>
         d ? `${d.kind === 'percent' ? `${d.value}%` : egpLabel(d.value)} off${d.note ? ` (${d.note})` : ''}` : null;
-      const snapshot = (name: string, at: Date, paid: PaymentLine[], d: typeof finalDiscount, sum: number) => ({
+      const snapshot = (name: string, seller: string | undefined, at: Date, paid: PaymentLine[], d: typeof finalDiscount, sum: number) => ({
         invoice: `INV-${before.invoiceYear}-${String(before.invoiceNo).padStart(5, '0')}`,
         customer: name,
+        soldBy: seller,
         occurredAt: at.toISOString(),
         discount: discountLabel(d),
         total: sum,
@@ -369,8 +381,8 @@ export class SalesService {
         action: 'sale.update',
         entityType: 'transaction',
         entityId: id,
-        before: snapshot(before.customerName, before.createdAt, beforePayments, beforeDiscount ?? null, before.total),
-        after: snapshot(customer.customerName, occurredAt, payments, finalDiscount, total),
+        before: snapshot(before.customerName, beforeSeller?.name, before.createdAt, beforePayments, beforeDiscount ?? null, before.total),
+        after: snapshot(customer.customerName, soldByName ?? beforeSeller?.name, occurredAt, payments, finalDiscount, total),
       });
 
       const row = await tx.query.transactions.findFirst({ where: eq(transactions.id, id), with: SALE_RELATIONS });

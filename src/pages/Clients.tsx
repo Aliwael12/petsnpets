@@ -12,6 +12,7 @@ import { useActiveEmployees } from '../api/auth';
 import { useAuthStore } from '../store/useAuthStore';
 import { canManageEmployees } from '../lib/permissions';
 import { isExactIdQuery } from '../lib/search';
+import { AssignPetModal, EditPetModal } from '../components/PetAdmin';
 import { buildActivity } from '../lib/activity';
 import { ActivityFeed } from '../components/ActivityFeed';
 import { Button, Card, CardHeader, EmptyState, Input, Modal, PhoneListInput, Select } from '../components/ui';
@@ -50,6 +51,9 @@ export function Clients() {
   // Every employee can correct a client's name and phones; deleting a client is admin only
   // on the server, so everyone else gets that button hidden rather than one that can only fail.
   const canDeleteClients = me?.role === 'admin';
+  const isAdmin = me?.role === 'admin';
+  const [editingPetId, setEditingPetId] = useState<string | null>(null);
+  const [assigningPet, setAssigningPet] = useState(false);
   // The full staff list (former employees included) is behind "manage employees"; everyone
   // else names the history from the active roster the sign-in screen already uses.
   const canListAllStaff = canManageEmployees(me);
@@ -267,28 +271,50 @@ export function Clients() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Linked pets ({linkedPets.length})
                     </p>
-                    <button
-                      type="button"
-                      onClick={openAddPet}
-                      className="flex items-center gap-1 text-xs font-medium text-navy-700 hover:underline"
-                    >
-                      <Plus size={13} /> Add pet
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => setAssigningPet(true)}
+                          className="flex items-center gap-1 text-xs font-medium text-navy-700 hover:underline"
+                        >
+                          <PawPrint size={13} /> Assign existing pet
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={openAddPet}
+                        className="flex items-center gap-1 text-xs font-medium text-navy-700 hover:underline"
+                      >
+                        <Plus size={13} /> Add pet
+                      </button>
+                    </div>
                   </div>
                   {linkedPets.length === 0 ? (
                     <p className="text-sm text-slate-400">No pets linked to this client yet.</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {linkedPets.map((pet) => (
-                        <Link
-                          key={pet.id}
-                          to={`/pet-logs?pet=${pet.id}`}
-                          className="flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm text-navy-800 hover:border-navy-400 hover:bg-slate-50"
-                        >
-                          <PawPrint size={14} className="text-navy-500" />
-                          {pet.name}
-                          <span className="text-xs text-slate-400 capitalize">{pet.species}</span>
-                        </Link>
+                        <span key={pet.id} className="flex items-center rounded-full border border-slate-200 text-sm text-navy-800 hover:border-navy-400">
+                          <Link
+                            to={`/pet-logs?pet=${pet.id}`}
+                            className={`flex items-center gap-2 py-1.5 pl-3 hover:bg-slate-50 ${isAdmin ? 'rounded-l-full pr-2' : 'rounded-full pr-3'}`}
+                          >
+                            <PawPrint size={14} className="text-navy-500" />
+                            {pet.name}
+                            <span className="text-xs text-slate-400 capitalize">{pet.species}</span>
+                          </Link>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingPetId(pet.id)}
+                              className="rounded-r-full border-l border-slate-200 py-1.5 pl-2 pr-2.5 text-slate-400 hover:bg-slate-50 hover:text-navy-800"
+                              title={`Edit or move ${pet.name}`}
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          )}
+                        </span>
                       ))}
                     </div>
                   )}
@@ -397,6 +423,12 @@ export function Clients() {
             </Button>
           </div>
         </Modal>
+      )}
+      {editingPetId && linkedPets.find((pt) => pt.id === editingPetId) && (
+        <EditPetModal pet={linkedPets.find((pt) => pt.id === editingPetId)!} onClose={() => setEditingPetId(null)} />
+      )}
+      {assigningPet && selectedClient && (
+        <AssignPetModal clientId={selectedClient.id} clientName={selectedClient.name} onClose={() => setAssigningPet(false)} />
       )}
     </div>
   );

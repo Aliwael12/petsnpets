@@ -104,6 +104,9 @@ function EditSaleModal({ sale, isAdmin, onClose }: { sale: Transaction; isAdmin:
   const [payment, setPayment] = useState<PaymentDraft>(() => draftFromPayments(sale.payments));
   const originalDiscountId = sale.discountId ?? '';
   const [discountId, setDiscountId] = useState(originalDiscountId);
+  const [soldBy, setSoldBy] = useState(sale.soldBy);
+  // Admin only: the full staff list (former employees too), for crediting the sale.
+  const { data: employees = [] } = useEmployees({ enabled: isAdmin });
 
   // The admin can pick any unused discount of whoever the sale is for, or keep/remove the one it has.
   const { data: available = [] } = useDiscounts({ clientId, availableOnly: true }, { enabled: isAdmin && !!clientId, staleTime: 0 });
@@ -129,9 +132,10 @@ function EditSaleModal({ sale, isAdmin, onClose }: { sale: Transaction; isAdmin:
     }
     const clientChanged = clientId !== originalClientId;
     const discountChanged = discountId !== originalDiscountId;
+    const sellerChanged = soldBy !== sale.soldBy;
     const timeChanged = occurredAt !== originalTime;
     const paymentsChanged = !sameLines(paid.payments, sale.payments);
-    if (!clientChanged && !discountChanged && !timeChanged && !paymentsChanged) {
+    if (!clientChanged && !discountChanged && !sellerChanged && !timeChanged && !paymentsChanged) {
       onClose();
       return;
     }
@@ -140,6 +144,7 @@ function EditSaleModal({ sale, isAdmin, onClose }: { sale: Transaction; isAdmin:
         id: sale.id,
         clientId: clientChanged ? clientId || null : undefined,
         discountId: discountChanged ? discountId || null : undefined,
+        soldBy: sellerChanged ? soldBy : undefined,
         occurredAt: timeChanged ? occurredAt : undefined,
         payments: paymentsChanged ? paid.payments : undefined,
       },
@@ -180,6 +185,22 @@ function EditSaleModal({ sale, isAdmin, onClose }: { sale: Transaction; isAdmin:
           <>
             <ClientPicker value={clientId} onChange={changeClient} autoFocus={false} />
             {!clientId && <p className="mt-1 text-xs text-slate-400">No customer picked — the sale is saved as a walk-in.</p>}
+          </>
+        )}
+        {isAdmin && (
+          <>
+            <label className="mt-3 block text-xs font-medium text-slate-500" htmlFor="sale-sold-by">
+              Made by
+            </label>
+            <Select id="sale-sold-by" value={soldBy} onChange={(e) => setSoldBy(e.target.value)}>
+              {/* Former staff stay listed so an old sale can still show who made it. */}
+              {[...employees].sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name)).map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                  {e.active ? '' : ' (former)'}
+                </option>
+              ))}
+            </Select>
           </>
         )}
         {isAdmin && !sale.boardingId && (

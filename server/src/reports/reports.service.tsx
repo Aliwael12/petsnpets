@@ -92,6 +92,8 @@ const OTHER_ACTIVITY_LABELS: Record<string, string> = {
   'income.reallocate': 'Reallocated income between methods',
   'sale.delete': 'Deleted sale',
   'product.delete': 'Deleted product',
+  'pet.update': 'Edited / moved pet',
+  'pet.delete': 'Deleted pet',
   'boarding.delete': 'Deleted boarding stay',
   'supplier_order.delete': 'Deleted supplier shipment',
   'supplier_payment.delete': 'Deleted supplier settlement',

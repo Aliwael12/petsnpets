@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useSearchParams } from 'react-router-dom';
 import { usePet, usePets, useCreatePet } from '../api/pets';
+import { EditPetModal } from '../components/PetAdmin';
+import { useAuthStore } from '../store/useAuthStore';
 import { useClients } from '../api/clients';
 import { useCreatePetLog, usePetLogs } from '../api/petLogs';
 import { ApiError } from '../api/client';
@@ -19,7 +21,7 @@ import {
   formatDateTime,
 } from '../components/ui';
 import type { LogType, PetSex, Species } from '../types';
-import { PawPrint, Plus, Search, UserCircle2 } from 'lucide-react';
+import { PawPrint, Plus, Search, UserCircle2, Pencil } from 'lucide-react';
 
 const speciesOptions: Species[] = ['dog', 'cat', 'bird', 'rabbit', 'other'];
 const logTypeOptions: LogType[] = ['vaccination', 'shower', 'other'];
@@ -43,6 +45,8 @@ export function PetLogs() {
 
   const [searchParams] = useSearchParams();
   const [selectedPetId, setSelectedPetId] = useState<string | null>(null);
+  const isAdmin = useAuthStore((st) => st.employee?.role === 'admin');
+  const [editingPet, setEditingPet] = useState(false);
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [petModalOpen, setPetModalOpen] = useState(false);
   const [newClientMode, setNewClientMode] = useState(false);
@@ -234,6 +238,11 @@ export function PetLogs() {
                           <UserCircle2 size={15} /> View client
                         </Link>
                       )}
+                      {isAdmin && (
+                        <Button variant="ghost" onClick={() => setEditingPet(true)}>
+                          <Pencil size={15} /> Edit pet
+                        </Button>
+                      )}
                       <Button onClick={() => setLogModalOpen(true)}>
                         <Plus size={15} /> Add log
                       </Button>
@@ -384,6 +393,9 @@ export function PetLogs() {
             </div>
           </div>
         </Modal>
+      )}
+      {editingPet && selectedPet && (
+        <EditPetModal pet={selectedPet} onClose={() => setEditingPet(false)} onDeleted={() => setSelectedPetId(null)} />
       )}
     </div>
   );

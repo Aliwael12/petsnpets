@@ -36,3 +36,39 @@ export function useCreatePet() {
     },
   });
 }
+
+export interface UpdatePetInput {
+  name?: string;
+  species?: Species;
+  breed?: string;
+  sex?: PetSex | null;
+  birthDate?: string | null;
+  /** Moves the pet to this client. */
+  clientId?: string;
+}
+
+/** Admin only: edit a pet or move it to another client. */
+export function useUpdatePet() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: UpdatePetInput }) => api.patch<Pet>(`/pets/${id}`, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pets'] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['reminders'] });
+    },
+  });
+}
+
+/** Admin only: delete a pet that has no logs or stays. */
+export function useDeletePet() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/pets/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pets'] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['reminders'] });
+    },
+  });
+}

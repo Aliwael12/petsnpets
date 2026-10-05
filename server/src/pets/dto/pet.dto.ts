@@ -29,3 +29,16 @@ export const listPetsQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
 });
 export type ListPetsQueryDto = z.infer<typeof listPetsQuerySchema>;
+
+/** Admin only. Any field may change; `clientId` moves the pet to another client. */
+export const updatePetSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200).optional(),
+    species: speciesSchema.optional(),
+    breed: z.string().trim().max(200).optional(),
+    sex: petSexSchema.nullable().optional(),
+    birthDate: z.iso.date().nullable().optional(),
+    clientId: z.uuid().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to change.' });
+export type UpdatePetDto = z.infer<typeof updatePetSchema>;

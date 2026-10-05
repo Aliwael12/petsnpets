@@ -63,6 +63,8 @@ export interface UpdateSaleInput {
   clientId?: string | null;
   /** Admin only: the client discount to apply; null removes it. */
   discountId?: string | null;
+  /** Admin only: the employee the sale is credited to. */
+  soldBy?: string;
   /** Cairo wall time, "YYYY-MM-DDTHH:mm" — the server applies the clinic's UTC offset. */
   occurredAt?: string;
   payments?: PaymentLine[];

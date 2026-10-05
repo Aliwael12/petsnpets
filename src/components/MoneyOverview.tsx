@@ -5,7 +5,7 @@ import { useFinancialSummary, useReallocateIncome } from '../api/analytics';
 import { useSupplierBalances } from '../api/purchasing';
 import { ApiError } from '../api/client';
 import { useAuthStore } from '../store/useAuthStore';
-import { todayKey } from '../lib/timezone';
+import { formatDayKey, todayKey } from '../lib/timezone';
 import { Button, Input, Modal, StatTile, formatCurrency } from './ui';
 import { PAYMENT_METHOD_LABELS, type FinancialWindow, type MethodBreakdown, type PaymentBucket, type PaymentMethod } from '../types';
 
@@ -210,8 +210,13 @@ export function MoneyOverview() {
   // `range` here is deliberately today's single day — `month` in the same response always
   // resolves to the current calendar month regardless of what range is passed, so one request
   // covers both cards below.
-  const { data: summary } = useFinancialSummary({ from: todayKey(), to: todayKey() });
   const isAdmin = useAuthStore((s) => s.employee?.role === 'admin');
+  // The admin can look at any single day; everyone else always sees today. `month` in the
+  // same response is the current calendar month whatever day is picked.
+  const [day, setDay] = useState(todayKey());
+  const shownDay = isAdmin ? day : todayKey();
+  const isToday = shownDay === todayKey();
+  const { data: summary } = useFinancialSummary({ from: shownDay, to: shownDay });
   const [reallocating, setReallocating] = useState(false);
 
   const owedBySupplier = (balances ?? []).filter((b) => b.owed > 0).sort((a, b) => b.owed - a.owed);
@@ -255,7 +260,20 @@ export function MoneyOverview() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <StatTile
-              label="Income today"
+              label={isToday ? 'Income today' : `Income on ${formatDayKey(shownDay)}`}
+              action={
+                isAdmin ? (
+                  <input
+                    type="date"
+                    value={day}
+                    max={todayKey()}
+                    onChange={(e) => setDay(e.target.value || todayKey())}
+                    className="rounded-md border border-slate-300 bg-white px-1.5 py-0.5 text-xs text-navy-900 outline-none focus:border-navy-600"
+                    aria-label="Show income for another day"
+                    title="Show income for another day"
+                  />
+                ) : undefined
+              }
               value={formatCurrency(summary.range.income.net)}
               tone={summary.range.income.net < 0 ? 'warn' : 'income'}
               hint={
