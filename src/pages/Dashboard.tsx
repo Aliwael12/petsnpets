@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { canManageDiscounts, canViewAllAnalytics, canViewFinancials } from '../lib/permissions';
 import { useProducts } from '../api/catalog';
 import { useSales } from '../api/sales';
-import { useClients } from '../api/clients';
+import { ClientPicker } from '../components/ClientPicker';
 import { useCreateDiscount, useDiscounts, useRevokeDiscount } from '../api/discounts';
 import { useRevenueTimeseries } from '../api/analytics';
 import { downloadMonthlyReport } from '../api/reports';
@@ -49,7 +49,6 @@ export function Dashboard() {
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   // The whole client roster is only needed for the discount picker, so it loads when that
   // opens rather than on every visit to the landing page.
-  const { data: clients = [], isLoading: clientsLoading } = useClients(undefined, { enabled: discountModalOpen });
   const [discountForm, setDiscountForm] = useState(emptyDiscountForm);
   const [exporting, setExporting] = useState(false);
 
@@ -229,14 +228,8 @@ export function Dashboard() {
           <div className="flex flex-col gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Client</label>
-              <Select value={discountForm.clientId} onChange={(e) => setDiscountForm({ ...discountForm, clientId: e.target.value })}>
-                <option value="">{clientsLoading ? 'Loading clients…' : 'Select client'}</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
+              {/* Search by name, phone or client ID — the roster is in the thousands. */}
+              <ClientPicker value={discountForm.clientId} onChange={(clientId) => setDiscountForm({ ...discountForm, clientId })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
