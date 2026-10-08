@@ -10,9 +10,10 @@ import { ApiError } from '../api/client';
 import { Badge, Button, Card, EmployeeTag, EmptyState, Input, Modal, Select, formatCurrency, formatDateTime } from '../components/ui';
 import { PaymentsEditor, draftFromPayments, paymentsFromDraft, type PaymentDraft } from '../components/PaymentsEditor';
 import { ClientPicker } from '../components/ClientPicker';
-import { FileText, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { FileText, Loader2, Pencil, Search, Trash2 } from 'lucide-react';
+import { matchesPersonQuery } from '../lib/search';
 import { PAYMENT_METHOD_LABELS, type PaymentLine, type PaymentMethod, type Transaction } from '../types';
-import { toBusinessDateTimeInput } from '../lib/timezone';
+import { toBusinessDateTimeInput, todayKey } from '../lib/timezone';
 
 const invoiceLabel = (t: Transaction) => `INV-${t.invoiceYear}-${String(t.invoiceNo).padStart(5, '0')}`;
 
@@ -298,14 +299,17 @@ export function Transactions() {
   const [productFilter, setProductFilter] = useState('all');
   // A split sale matches every method it was paid with; 'unrecorded' means no method at all.
   const [methodFilter, setMethodFilter] = useState<'all' | PaymentMethod | 'unrecorded'>('all');
-  const [rangeFilter, setRangeFilter] = useState<'all' | '7' | '30'>('all');
+  // All time by default; a picked day shows only that day's sales.
+  const [day, setDay] = useState('');
+  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [deleting, setDeleting] = useState<Transaction | null>(null);
   const isAdmin = useAuthStore((s) => s.employee?.role === 'admin');
 
   const { data: sales = [] } = useSales({
     soldBy: employeeFilter === 'all' ? undefined : employeeFilter,
-    sinceDays: rangeFilter === 'all' ? undefined : Number(rangeFilter),
+    from: day || undefined,
+    to: day || undefined,
   });
 
   // Filtering by product is done client-side against the already-fetched list — the API
@@ -315,6 +319,16 @@ export function Transactions() {
     .filter((t) => productFilter === 'all' || t.items.some((it) => it.productId === productFilter))
     .filter((t) =>
       methodFilter === 'all' ? true : methodFilter === 'unrecorded' ? t.payments.length === 0 : t.payments.some((p) => p.method === methodFilter),
+    )
+    // Customer name, phone or client ID — the same rules as the Clients search.
+    .filter(
+      (t) =>
+        !search.trim() ||
+        matchesPersonQuery(search, {
+          names: [t.customerName, t.client?.name],
+          phones: (t.client?.phones ?? []).map((p) => p.phone),
+          legacyId: t.client?.legacyId,
+        }),
     );
 
   // Rows show what each customer paid; the total is what the clinic keeps, after the card
@@ -365,11 +379,34 @@ export function Transactions() {
             </option>
           ))}
         </Select>
-        <Select value={rangeFilter} onChange={(e) => setRangeFilter(e.target.value as 'all' | '7' | '30')} className="w-40">
-          <option value="all">All time</option>
-          <option value="7">Last 7 days</option>
-          <option value="30">Last 30 days</option>
-        </Select>
+        <div className="flex items-center gap-1.5">
+          <Input
+            type="date"
+            value={day}
+            max={todayKey()}
+            onChange={(e) => setDay(e.target.value)}
+            className="w-44"
+            aria-label="Show one day's transactions"
+            title="Show one day's transactions"
+          />
+          {day ? (
+            <button type="button" onClick={() => setDay('')} className="whitespace-nowrap text-xs font-medium text-navy-700 hover:underline">
+              Show all time
+            </button>
+          ) : (
+            <span className="whitespace-nowrap text-xs text-slate-400">All time</span>
+          )}
+        </div>
+      </div>
+      <div className="relative max-w-md">
+        <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+        <Input
+          placeholder="Search customer name, phone or client ID"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-8"
+          aria-label="Search transactions"
+        />
       </div>
 
       <Card>

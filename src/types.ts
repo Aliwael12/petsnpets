@@ -313,7 +313,7 @@ export interface Transaction {
   createdAt: string;
   items: TransactionItem[];
   soldByEmployee?: { id: string; name: string };
-  client?: { id: string; name: string; legacyId?: number | null };
+  client?: { id: string; name: string; legacyId?: number | null; phones?: { phone: string }[] };
   discount?: { id: string; kind: DiscountKind; value: number; note?: string | null } | null;
   /** Set on sales rung up automatically for money paid on a boarding stay. */
   boardingId?: string | null;

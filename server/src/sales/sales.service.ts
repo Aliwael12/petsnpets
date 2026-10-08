@@ -62,7 +62,8 @@ const SALE_RELATIONS = {
   items: { with: { product: { columns: { id: true, name: true } } } },
   payments: PAYMENT_COLUMNS,
   soldByEmployee: { columns: { id: true, name: true } },
-  client: { columns: { id: true, name: true, legacyId: true } },
+  // Phones so the Transactions search can find a sale by the customer's number.
+  client: { columns: { id: true, name: true, legacyId: true }, with: { phones: { columns: { phone: true } } } },
   discount: { columns: { id: true, kind: true, value: true, note: true } },
 } as const;
 
